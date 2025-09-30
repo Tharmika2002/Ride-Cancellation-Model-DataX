@@ -1,9 +1,12 @@
+# Reproducibility-critical: exact pins
 numpy==1.26.4
 pandas==2.2.2
 scipy==1.11.4
 scikit-learn==1.7.2
 imbalanced-learn==0.12.2
 xgboost==1.7.6
-streamlit==1.37.0   # use the latest stable
-matplotlib==3.9.3   # compatible with your setup
 joblib==1.3.2
+
+# App / plotting
+streamlit==1.37.0
+matplotlib==3.9.3
