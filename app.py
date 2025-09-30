@@ -16,6 +16,10 @@ st.caption(
     f"pandas {pandas.__version__}"
 )
 
+import imblearn.pipeline        # registers imblearn.pipeline.Pipeline
+import xgboost.sklearn          # registers xgboost.sklearn.XGBClassifier
+
+
 # Pre-import common classes used inside pickled pipelines
 try:
     import imblearn.pipeline        # registers imblearn.pipeline.Pipeline
