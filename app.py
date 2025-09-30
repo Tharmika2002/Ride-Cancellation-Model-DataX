@@ -11,6 +11,11 @@ import joblib
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import custom_transformers  # must come first
+import joblib
+
+model = joblib.load("final_model_pipeline.pkl")
+
 
 # ---------- Version banner & pre-imports ----------
 import sklearn, numpy, pandas  # noqa: F401
