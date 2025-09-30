@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import types
+import hashlib
 from datetime import datetime
 from typing import List, Tuple
 
@@ -10,7 +11,6 @@ import joblib
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import custom_transformers
 
 # ---------- Version banner & pre-imports ----------
 import sklearn, numpy, pandas  # noqa: F401
@@ -71,15 +71,10 @@ def _ensure_module(name: str):
         sys.modules[name] = types.ModuleType(name)
     return sys.modules[name]
 
-def _auto_stub_functions(globs: List[Tuple[str, str]]) -> List[str]:
-    """
-    Create identity function stubs for missing symbols under __main__ or custom_transformers.
-    Useful when a FunctionTransformer or a callable was pickled.
-    """
+def _auto_stub_functions_any_module(globs: List[Tuple[str, str]]) -> List[str]:
+    """Create identity function stubs for ANY missing module.symbol."""
     created = []
     for mod, sym in globs:
-        if mod not in ("__main__", "custom_transformers"):
-            continue
         module_obj = _ensure_module(mod)
         if hasattr(module_obj, sym):
             continue
@@ -88,21 +83,16 @@ def _auto_stub_functions(globs: List[Tuple[str, str]]) -> List[str]:
             if args:
                 return args[0]
             return None
-        _fn.__name__ = sym
+        _fn.__name__ = sym  # works even for '<lambda>'
         setattr(module_obj, sym, _fn)
         created.append(f"{mod}.{sym} (function)")
     return created
 
-def _auto_stub_classes(globs: List[Tuple[str, str]]) -> List[str]:
-    """
-    Create no-op sklearn-style transformer class stubs for missing symbols
-    under __main__ or custom_transformers so unpickling can proceed.
-    """
+def _auto_stub_classes_any_module(globs: List[Tuple[str, str]]) -> List[str]:
+    """Create no-op sklearn-style transformer class stubs for ANY missing module.symbol."""
     from sklearn.base import BaseEstimator, TransformerMixin
     created = []
     for mod, cls in globs:
-        if mod not in ("__main__", "custom_transformers"):
-            continue
         module_obj = _ensure_module(mod)
         if hasattr(module_obj, cls):
             continue
@@ -114,7 +104,7 @@ def _auto_stub_classes(globs: List[Tuple[str, str]]) -> List[str]:
                 def transform(self, X): return X
                 def predict(self, X):
                     raise RuntimeError(
-                        f"Auto-stub '{name}' cannot predict. Replace with real implementation."
+                        f"Auto-stub '{name}' cannot predict. Replace with the real implementation."
                     )
             _Stub.__name__ = name
             return _Stub
@@ -123,6 +113,19 @@ def _auto_stub_classes(globs: List[Tuple[str, str]]) -> List[str]:
         created.append(f"{mod}.{cls} (class)")
     return created
 
+def _file_info(path: str) -> str:
+    size = os.path.getsize(path) if os.path.exists(path) else -1
+    sha = ""
+    try:
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                h.update(chunk)
+        sha = h.hexdigest()[:16]
+    except Exception:
+        pass
+    return f"{size} bytes | sha256:{sha}"
+
 # ---------- Loaders ----------
 @st.cache_resource
 def load_pipeline():
@@ -130,38 +133,48 @@ def load_pipeline():
         st.error("❌ Model file not found. Please add final_model_pipeline.pkl to the repo root.")
         st.stop()
 
+    st.write(f"**Model file:** `{MODEL_PATH}`  ({_file_info(MODEL_PATH)})")
+
     globs = _list_pickle_globals(MODEL_PATH)
 
     # Always show what the pickle expects
     with st.expander("🔎 Model references (module.symbol) found in pickle"):
         st.code("\n".join(f"{m}.{n}" for m, n in globs) or "(none)")
 
-    # Pass 1: try with function stubs
-    created_fns = _auto_stub_functions(globs)
+    # Pass 0: try load directly
+    try:
+        return joblib.load(MODEL_PATH)
+    except AttributeError as e:
+        st.warning(f"First load attempt failed (AttributeError): {e!r}")
+
+    # Pass 1: add function stubs anywhere missing, then try again
+    created_fns = _auto_stub_functions_any_module(globs)
     if created_fns:
         with st.expander("⚠️ Auto-created identity FUNCTIONS (temporary stubs)"):
             for name in created_fns:
                 st.write(name)
     try:
         return joblib.load(MODEL_PATH)
+    except AttributeError as e:
+        st.warning(f"Second load attempt (after function stubs) failed: {e!r}")
 
-    except AttributeError:
-        # Pass 2: also add class stubs and try again
-        created_clss = _auto_stub_classes(globs)
-        if created_clss:
-            with st.expander("⚠️ Auto-created no-op CLASSES (temporary stubs)"):
-                for name in created_clss:
-                    st.write(name)
-        try:
-            return joblib.load(MODEL_PATH)
-        except AttributeError:
-            st.error("❌ Could not unpickle the model: a required class/module isn't importable.")
-            st.info(
-                "Create **custom_transformers.py** and implement the real functions/classes named above. "
-                "Keep `import custom_transformers` near the top of app.py so pickle can find them. "
-                "You already pinned the ML stack; replacing stubs with real code is the final step."
-            )
-            st.stop()
+    # Pass 2: also add class stubs anywhere missing, then try again
+    created_clss = _auto_stub_classes_any_module(globs)
+    if created_clss:
+        with st.expander("⚠️ Auto-created no-op CLASSES (temporary stubs)"):
+            for name in created_clss:
+                st.write(name)
+    try:
+        return joblib.load(MODEL_PATH)
+    except AttributeError as e:
+        st.error("❌ Could not unpickle the model: a required class/module isn't importable.")
+        st.code(repr(e))  # <-- show the exact missing symbol
+        st.info(
+            "Create **custom_transformers.py** and implement the real functions/classes named above "
+            "(matching the module and symbol names), and keep `import custom_transformers` near the top.\n\n"
+            "Also verify the model file is correct (not a Git LFS pointer). See file size & sha256 above."
+        )
+        st.stop()
 
 @st.cache_resource
 def load_lookup():
