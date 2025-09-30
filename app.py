@@ -1,8 +1,8 @@
 import os
 import sys
 import json
-from datetime import datetime
 import types
+from datetime import datetime
 from typing import List, Tuple
 
 import streamlit as st
@@ -38,11 +38,9 @@ except Exception:
     pass
 # ---------------------------------------------------
 
-
 # ---------- Paths ----------
 MODEL_PATH = "final_model_pipeline.pkl"
 LOOKUP_CANDIDATES = ["lookup_stats.json", "models/lookup_stats.json"]
-
 
 # ---------- Helpers ----------
 def _first_existing(paths: List[str]):
@@ -51,9 +49,8 @@ def _first_existing(paths: List[str]):
             return p
     return None
 
-
 def _list_pickle_globals(path: str) -> List[Tuple[str, str]]:
-    """Return (module, class) pairs referenced by the pickle (for debugging)."""
+    """Return (module, symbol) pairs referenced by the pickle (for debugging)."""
     import pickletools
     with open(path, "rb") as f:
         data = f.read()
@@ -67,61 +64,63 @@ def _list_pickle_globals(path: str) -> List[Tuple[str, str]]:
                 pass
     return sorted(out)
 
-
 def _ensure_module(name: str):
     """Ensure a module exists in sys.modules (create if missing)."""
     if name not in sys.modules:
         sys.modules[name] = types.ModuleType(name)
     return sys.modules[name]
 
-
-def _auto_stub_missing_classes(globs: List[Tuple[str, str]]) -> List[str]:
+def _auto_stub_functions(globs: List[Tuple[str, str]]) -> List[str]:
     """
-    For any classes under __main__ or custom_transformers that are missing,
-    create a no-op sklearn-style transformer stub so unpickling can proceed.
+    Create identity function stubs for missing symbols under __main__ or custom_transformers.
+    Useful when a FunctionTransformer or a callable was pickled.
+    """
+    created = []
+    for mod, sym in globs:
+        if mod not in ("__main__", "custom_transformers"):
+            continue
+        module_obj = _ensure_module(mod)
+        if hasattr(module_obj, sym):
+            continue
+        # identity function
+        def _fn(*args, **kwargs):
+            if args:
+                return args[0]
+            return None
+        _fn.__name__ = sym
+        setattr(module_obj, sym, _fn)
+        created.append(f"{mod}.{sym} (function)")
+    return created
+
+def _auto_stub_classes(globs: List[Tuple[str, str]]) -> List[str]:
+    """
+    Create no-op sklearn-style transformer class stubs for missing symbols
+    under __main__ or custom_transformers so unpickling can proceed.
     """
     from sklearn.base import BaseEstimator, TransformerMixin
-
     created = []
     for mod, cls in globs:
         if mod not in ("__main__", "custom_transformers"):
-            # we only auto-stub likely user-defined modules; others should be real
             continue
-
         module_obj = _ensure_module(mod)
         if hasattr(module_obj, cls):
-            continue  # already present
+            continue
 
-        # Dynamically create a no-op estimator/transformer
         def _make_stub(name):
-            # simple identity transformer
             class _Stub(BaseEstimator, TransformerMixin):
-                def __init__(self, *args, **kwargs):
-                    # accept anything; store for repr
-                    self._args = args
-                    self._kwargs = kwargs
-
-                def fit(self, X, y=None):
-                    return self
-
-                def transform(self, X):
-                    # identity pass-through
-                    return X
-
-                # if used as final estimator
+                def __init__(self, *args, **kwargs): pass
+                def fit(self, X, y=None): return self
+                def transform(self, X): return X
                 def predict(self, X):
                     raise RuntimeError(
                         f"Auto-stub '{name}' cannot predict. Replace with real implementation."
                     )
-
             _Stub.__name__ = name
             return _Stub
 
         setattr(module_obj, cls, _make_stub(cls))
-        created.append(f"{mod}.{cls}")
-
+        created.append(f"{mod}.{cls} (class)")
     return created
-
 
 # ---------- Loaders ----------
 @st.cache_resource
@@ -130,40 +129,38 @@ def load_pipeline():
         st.error("❌ Model file not found. Please add final_model_pipeline.pkl to the repo root.")
         st.stop()
 
-    # Inspect required classes before load
     globs = _list_pickle_globals(MODEL_PATH)
 
-    # Try to auto-stub any missing custom classes (under __main__ or custom_transformers)
-    created = _auto_stub_missing_classes(globs)
-    if created:
-        with st.expander("⚠️ Auto-created NO-OP stubs for these missing classes"):
-            for name in created:
-                st.write(name)
-        st.info(
-            "Replace these stubs with your real code later: create custom_transformers.py and "
-            "define the exact classes listed above, then remove the auto-stub logic."
-        )
+    # Always show what the pickle expects
+    with st.expander("🔎 Model references (module.symbol) found in pickle"):
+        st.code("\n".join(f"{m}.{n}" for m, n in globs) or "(none)")
 
-    # Attempt to load
+    # Pass 1: try with function stubs
+    created_fns = _auto_stub_functions(globs)
+    if created_fns:
+        with st.expander("⚠️ Auto-created identity FUNCTIONS (temporary stubs)"):
+            for name in created_fns:
+                st.write(name)
     try:
         return joblib.load(MODEL_PATH)
 
     except AttributeError:
-        # If still failing, show everything the pickle expects
-        st.error("❌ Could not unpickle the model: a required class/module isn't importable.")
-        with st.expander("🔎 Debug: classes referenced by the model (module.Class)"):
-            for mod, name in globs:
-                st.write(f"{mod}.{name}")
-        st.info(
-            "Fix:\n"
-            "• If you see entries like __main__.MyFeatureEngineer or custom_transformers.MyFeatureEngineer:\n"
-            "  - Create custom_transformers.py in the repo with that class implementation\n"
-            "  - Keep `import custom_transformers` near the top of this file\n"
-            "• If you see imblearn.pipeline.Pipeline or xgboost.sklearn.XGBClassifier, those are already pre-imported above.\n"
-            "• Ensure the ML stack versions match training (pin in requirements.txt)."
-        )
-        st.stop()
-
+        # Pass 2: also add class stubs and try again
+        created_clss = _auto_stub_classes(globs)
+        if created_clss:
+            with st.expander("⚠️ Auto-created no-op CLASSES (temporary stubs)"):
+                for name in created_clss:
+                    st.write(name)
+        try:
+            return joblib.load(MODEL_PATH)
+        except AttributeError:
+            st.error("❌ Could not unpickle the model: a required class/module isn't importable.")
+            st.info(
+                "Create **custom_transformers.py** and implement the real functions/classes named above. "
+                "Keep `import custom_transformers` near the top of app.py so pickle can find them. "
+                "You already pinned the ML stack; replacing stubs with real code is the final step."
+            )
+            st.stop()
 
 @st.cache_resource
 def load_lookup():
@@ -174,18 +171,14 @@ def load_lookup():
     with open(p, "r") as f:
         return json.load(f)
 
-
 # ---------- App init ----------
 model = load_pipeline()
 stats = load_lookup()
 
-
 # ---------- Helpers ----------
 def get_classes(m):
-    # direct estimator (has classes_)
     if hasattr(m, "classes_") and m.classes_ is not None:
         return list(m.classes_)
-    # try named_steps['classifier'] (sklearn Pipeline style)
     steps = getattr(m, "named_steps", None)
     if isinstance(steps, dict):
         clf = steps.get("classifier")
@@ -193,9 +186,7 @@ def get_classes(m):
             return list(clf.classes_)
     return None
 
-
 classes_ = get_classes(model)
-
 
 # ---------- UI ----------
 st.title("🚖 Ride Booking Outcome Predictor (DataX)")
@@ -219,7 +210,6 @@ hour = dt.hour
 day_of_week = dt.weekday()
 is_weekend = int(day_of_week in (5, 6))
 
-
 def assign_time_band(h):
     if 5 <= h <= 11:
         return "Morning"
@@ -229,9 +219,7 @@ def assign_time_band(h):
         return "Evening"
     return "Night"
 
-
 time_band = assign_time_band(hour)
-
 
 # Lookup engineered features (computed on train split during training)
 def get_lookup_rates(pu, dr, _stats):
@@ -240,7 +228,6 @@ def get_lookup_rates(pu, dr, _stats):
     pair_key = f"{pu}|||{dr}"
     pair_f = _stats["pair_freq"].get(pair_key, _stats["defaults"]["pair_freq"])
     return pu_rate, dr_rate, pair_f
-
 
 pickup_cancel_rate, drop_cancel_rate, pickup_drop_pair_freq = get_lookup_rates(pickup, drop, stats)
 
@@ -263,7 +250,6 @@ X_input = pd.DataFrame([{
     "payment_method": payment_method,
 }])
 
-
 st.subheader("Prediction")
 if st.button("Predict Booking Status"):
     try:
@@ -283,4 +269,4 @@ if st.button("Predict Booking Status"):
 
     except Exception as e:
         st.error(f"Prediction failed: {e}")
-        st.info("Ensure the input schema matches the training pipeline and any auto-stubbed classes are replaced by real implementations.")
+        st.info("Ensure input feature names match training and replace any auto-stubbed symbols with real implementations in custom_transformers.py.")
