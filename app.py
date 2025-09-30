@@ -5,6 +5,29 @@ import numpy as np
 import matplotlib.pyplot as plt
 from datetime import datetime
 
+# --- DEBUG + PREIMPORTS (add this after your existing imports) ---
+import sys, sklearn, numpy, pandas
+
+# Show runtime so we know we're on 3.10 & matching libs
+st.caption(
+    f"Python {sys.version.split()[0]} | "
+    f"sklearn {sklearn.__version__} | "
+    f"numpy {numpy.__version__} | "
+    f"pandas {pandas.__version__}"
+)
+
+# Pre-import common classes used inside pickled pipelines
+try:
+    import imblearn.pipeline        # registers imblearn.pipeline.Pipeline
+except Exception:
+    pass
+
+try:
+    import xgboost.sklearn          # registers xgboost.sklearn.XGBClassifier
+except Exception:
+    pass
+# --- end DEBUG + PREIMPORTS ---
+
 # === Paths ===
 MODEL_PATH = "final_model_pipeline.pkl"
 LOOKUP_PATH = "lookup_stats.json"   # <-- fixed to match training export
