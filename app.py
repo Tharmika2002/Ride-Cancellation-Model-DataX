@@ -2,6 +2,8 @@ import os
 import sys
 import json
 from datetime import datetime
+import types
+from typing import List, Tuple
 
 import streamlit as st
 import joblib
@@ -9,7 +11,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-# ---------- Version banner & pre-imports (helps unpickling) ----------
+# ---------- Version banner & pre-imports ----------
 import sklearn, numpy, pandas  # noqa: F401
 
 st.caption(
@@ -19,24 +21,22 @@ st.caption(
     f"pandas {pandas.__version__}"
 )
 
-# Try to import common classes that appear inside pickled pipelines
+# Common pickled classes from popular libs
 try:
     import imblearn.pipeline  # registers imblearn.pipeline.Pipeline
 except Exception:
     pass
-
 try:
     import xgboost.sklearn  # registers xgboost.sklearn.XGBClassifier
 except Exception:
     pass
 
-# If you had custom transformers at training time, put them in this file and keep this import.
-# (It won't error if the file doesn't exist in the repo.)
+# Try to import user custom transformers if they exist
 try:
     import custom_transformers  # noqa: F401
 except Exception:
     pass
-# --------------------------------------------------------------------
+# ---------------------------------------------------
 
 
 # ---------- Paths ----------
@@ -44,16 +44,16 @@ MODEL_PATH = "final_model_pipeline.pkl"
 LOOKUP_CANDIDATES = ["lookup_stats.json", "models/lookup_stats.json"]
 
 
-# ---------- Utilities ----------
-def _first_existing(paths):
+# ---------- Helpers ----------
+def _first_existing(paths: List[str]):
     for p in paths:
         if os.path.exists(p):
             return p
     return None
 
 
-def _list_pickle_globals(path: str):
-    """List module.Class names referenced by a pickle (for debugging unpickle errors)."""
+def _list_pickle_globals(path: str) -> List[Tuple[str, str]]:
+    """Return (module, class) pairs referenced by the pickle (for debugging)."""
     import pickletools
     with open(path, "rb") as f:
         data = f.read()
@@ -62,10 +62,65 @@ def _list_pickle_globals(path: str):
         if op.name == "GLOBAL":
             try:
                 mod, name = arg.split(" ")
-                out.add(f"{mod}.{name}")
+                out.add((mod, name))
             except Exception:
                 pass
     return sorted(out)
+
+
+def _ensure_module(name: str):
+    """Ensure a module exists in sys.modules (create if missing)."""
+    if name not in sys.modules:
+        sys.modules[name] = types.ModuleType(name)
+    return sys.modules[name]
+
+
+def _auto_stub_missing_classes(globs: List[Tuple[str, str]]) -> List[str]:
+    """
+    For any classes under __main__ or custom_transformers that are missing,
+    create a no-op sklearn-style transformer stub so unpickling can proceed.
+    """
+    from sklearn.base import BaseEstimator, TransformerMixin
+
+    created = []
+    for mod, cls in globs:
+        if mod not in ("__main__", "custom_transformers"):
+            # we only auto-stub likely user-defined modules; others should be real
+            continue
+
+        module_obj = _ensure_module(mod)
+        if hasattr(module_obj, cls):
+            continue  # already present
+
+        # Dynamically create a no-op estimator/transformer
+        def _make_stub(name):
+            # simple identity transformer
+            class _Stub(BaseEstimator, TransformerMixin):
+                def __init__(self, *args, **kwargs):
+                    # accept anything; store for repr
+                    self._args = args
+                    self._kwargs = kwargs
+
+                def fit(self, X, y=None):
+                    return self
+
+                def transform(self, X):
+                    # identity pass-through
+                    return X
+
+                # if used as final estimator
+                def predict(self, X):
+                    raise RuntimeError(
+                        f"Auto-stub '{name}' cannot predict. Replace with real implementation."
+                    )
+
+            _Stub.__name__ = name
+            return _Stub
+
+        setattr(module_obj, cls, _make_stub(cls))
+        created.append(f"{mod}.{cls}")
+
+    return created
 
 
 # ---------- Loaders ----------
@@ -75,21 +130,32 @@ def load_pipeline():
         st.error("❌ Model file not found. Please add final_model_pipeline.pkl to the repo root.")
         st.stop()
 
+    # Inspect required classes before load
+    globs = _list_pickle_globals(MODEL_PATH)
+
+    # Try to auto-stub any missing custom classes (under __main__ or custom_transformers)
+    created = _auto_stub_missing_classes(globs)
+    if created:
+        with st.expander("⚠️ Auto-created NO-OP stubs for these missing classes"):
+            for name in created:
+                st.write(name)
+        st.info(
+            "Replace these stubs with your real code later: create custom_transformers.py and "
+            "define the exact classes listed above, then remove the auto-stub logic."
+        )
+
+    # Attempt to load
     try:
         return joblib.load(MODEL_PATH)
 
     except AttributeError:
-        # Show exactly which classes the pickle expects, so we can add/import them.
+        # If still failing, show everything the pickle expects
         st.error("❌ Could not unpickle the model: a required class/module isn't importable.")
         with st.expander("🔎 Debug: classes referenced by the model (module.Class)"):
-            try:
-                for item in _list_pickle_globals(MODEL_PATH):
-                    st.write(item)
-            except Exception as ie:
-                st.write(f"(Could not inspect pickle: {ie})")
-
+            for mod, name in globs:
+                st.write(f"{mod}.{name}")
         st.info(
-            "How to fix:\n"
+            "Fix:\n"
             "• If you see entries like __main__.MyFeatureEngineer or custom_transformers.MyFeatureEngineer:\n"
             "  - Create custom_transformers.py in the repo with that class implementation\n"
             "  - Keep `import custom_transformers` near the top of this file\n"
@@ -217,4 +283,4 @@ if st.button("Predict Booking Status"):
 
     except Exception as e:
         st.error(f"Prediction failed: {e}")
-        st.info("Make sure the model was trained with these exact feature names and that the pipeline loads successfully above.")
+        st.info("Ensure the input schema matches the training pipeline and any auto-stubbed classes are replaced by real implementations.")
