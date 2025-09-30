@@ -1,24 +1,12 @@
-#streamlit==1.33.0
-#pandas==2.2.2
-#numpy==1.26.4
-#scikit-learn==1.4.2
-#scipy==1.11.4
-#imbalanced-learn==0.12.2
-#xgboost==1.7.6
-#matplotlib==3.8.4
-#joblib==1.3.2
+# Reproducibility-critical: exact pins
+numpy==1.26.4
+pandas==2.2.2
+scipy==1.11.4
+scikit-learn==1.4.2
+imbalanced-learn==0.12.2
+xgboost==1.7.6
 
-# Core
+# App/plotting (ranges are fine)
 streamlit>=1.33,<1.38
-pandas
-numpy
-
-# ML + Stats
-scikit-learn
-scipy
-imbalanced-learn
-xgboost
-
-# Plotting & Utils
 matplotlib>=3.8,<3.10
 joblib>=1.3,<1.4
