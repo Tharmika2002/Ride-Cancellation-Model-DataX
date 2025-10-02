@@ -374,19 +374,30 @@ if st.session_state.ui_stage == "predicted":
 
     st.divider()
 
-   # === Only visualization we keep: Confidence (on demand) ===
+# === Only visualization we keep: Confidence (on demand) ===
 st.markdown("### 🤝 How confident is this prediction?")
-if st.button("Show confidence by outcome"):
+
+cols_conf = st.columns([1,1])
+toggle_label = "Hide confidence" if st.session_state.show_confidence else "Show confidence by outcome"
+if cols_conf[0].button(toggle_label, key="toggle_confidence"):
+    st.session_state.show_confidence = not st.session_state.show_confidence
+    st.rerun()
+
+# Render (or hide) the chart based on state
+if st.session_state.show_confidence:
     if proba is None:
         st.info("Confidence details aren’t available for this model.")
     else:
         prob_df = pd.DataFrame({"Outcome": classes, "Confidence": proba})
         st.bar_chart(prob_df.set_index("Outcome"))
         top_idx = int(np.argmax(proba))
-        st.caption(f"The model is most confident about **{classes[top_idx]}** "
-                   f"({100*float(np.max(proba)):.1f}%).")
+        st.caption(
+            f"The model is most confident about **{classes[top_idx]}** "
+            f"({100*float(np.max(proba)):.1f}%)."
+        )
 else:
     st.caption("Click to see the model’s confidence for each possible outcome.")
+
 
 
     st.divider()
