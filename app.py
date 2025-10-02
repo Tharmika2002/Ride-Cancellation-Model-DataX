@@ -548,57 +548,58 @@ if st.session_state.ui_stage == "predicted":
 
 import altair as alt  # make sure this is at the top with your imports
 
-# Confidence toggle
-st.session_state.show_confidence = st.toggle(
-    "Show confidence by outcome",
-    value=st.session_state.show_confidence
-)
+    # Confidence toggle
+    st.session_state.show_confidence = st.toggle(
+        "Show confidence by outcome",
+        value=st.session_state.show_confidence
+    )
 
-if st.session_state.show_confidence:
-    if proba is None:
-        st.info("Confidence details aren’t available for this model.")
+    if st.session_state.show_confidence:
+        if proba is None:
+            st.info("Confidence details aren’t available for this model.")
+        else:
+            classes = get_classes()  # always aligned with predict_proba
+            prob_df = pd.DataFrame({
+                "Outcome": [str(c) for c in classes],
+                "Confidence": proba.astype(float)
+            })
+
+            # Orange bar chart with Altair
+            chart = (
+                alt.Chart(prob_df)
+                .mark_bar(color="#e45528")  # your orange
+                .encode(
+                    x=alt.X("Outcome:N", sort=list(prob_df["Outcome"])),
+                    y=alt.Y("Confidence:Q", scale=alt.Scale(domain=[0, 1])),
+                    tooltip=[alt.Tooltip("Outcome:N"), alt.Tooltip("Confidence:Q", format=".1%")]
+                )
+                .properties(height=280)
+            )
+
+            # Add labels on top of bars
+            labels = (
+                alt.Chart(prob_df)
+                .mark_text(dy=-6, color="#05355D", fontWeight="bold")
+                .encode(
+                    x="Outcome:N",
+                    y="Confidence:Q",
+                    text=alt.Text("Confidence:Q", format=".0%")
+                )
+            )
+
+            st.altair_chart(chart + labels, use_container_width=True)
+
+            # Highlight top class
+            top_idx = int(np.argmax(proba))
+            st.caption(
+                f"The model is most confident about **{classes[top_idx]}** "
+                f"({100 * float(np.max(proba)):.1f}%)."
+            )
     else:
-        classes = get_classes()  # always aligned with predict_proba
-        prob_df = pd.DataFrame({
-            "Outcome": [str(c) for c in classes],
-            "Confidence": proba.astype(float)
-        })
+        st.caption("Toggle to see the model’s confidence for each possible outcome.")
 
-        # Orange bar chart with Altair
-        chart = (
-            alt.Chart(prob_df)
-            .mark_bar(color="#e45528")  # your orange
-            .encode(
-                x=alt.X("Outcome:N", sort=list(prob_df["Outcome"])),
-                y=alt.Y("Confidence:Q", scale=alt.Scale(domain=[0, 1])),
-                tooltip=[alt.Tooltip("Outcome:N"), alt.Tooltip("Confidence:Q", format=".1%")]
-            )
-            .properties(height=280)
-        )
+    st.divider()
 
-        # Add labels on top of bars
-        labels = (
-            alt.Chart(prob_df)
-            .mark_text(dy=-6, color="#05355D", fontWeight="bold")  # blue text for contrast
-            .encode(
-                x="Outcome:N",
-                y="Confidence:Q",
-                text=alt.Text("Confidence:Q", format=".0%")
-            )
-        )
-
-        st.altair_chart(chart + labels, use_container_width=True)
-
-        # Highlight top class
-        top_idx = int(np.argmax(proba))
-        st.caption(
-            f"The model is most confident about **{classes[top_idx]}** "
-            f"({100 * float(np.max(proba)):.1f}%)."
-        )
-else:
-    st.caption("Toggle to see the model’s confidence for each possible outcome.")
-
-st.divider()
 
 
     # Bottom action buttons (two blues via CSS column selectors)
