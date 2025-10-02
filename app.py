@@ -531,36 +531,37 @@ if st.session_state.ui_stage == "predicted":
 
     st.divider()
 
-   # Confidence toggle
-st.session_state.show_confidence = st.toggle(
-    "Show confidence by outcome",
-    value=st.session_state.show_confidence
-)
+     # Confidence toggle
+    st.session_state.show_confidence = st.toggle(
+        "Show confidence by outcome",
+        value=st.session_state.show_confidence
+    )
 
-if st.session_state.show_confidence:
-    proba = st.session_state.last_proba
-    if proba is None:
-        st.info("Confidence details aren’t available for this model.")
+    if st.session_state.show_confidence:
+        proba = st.session_state.last_proba
+        if proba is None:
+            st.info("Confidence details aren’t available for this model.")
+        else:
+            classes = get_classes()  # always aligned with predict_proba
+            prob_df = pd.DataFrame({
+                "Outcome": [str(c) for c in classes],
+                "Confidence": proba
+            })
+            prob_df["Confidence"] = prob_df["Confidence"].astype(float)
+
+            st.bar_chart(prob_df.set_index("Outcome"))
+
+            # Highlight top class
+            top_idx = int(np.argmax(proba))
+            st.caption(
+                f"The model is most confident about **{classes[top_idx]}** "
+                f"({100 * float(np.max(proba)):.1f}%)."
+            )
     else:
-        classes = get_classes()  # <-- always aligned with predict_proba
-        prob_df = pd.DataFrame({
-            "Outcome": [str(c) for c in classes],
-            "Confidence": proba
-        })
-        prob_df["Confidence"] = prob_df["Confidence"].astype(float)
+        st.caption("Toggle to see the model’s confidence for each possible outcome.")
 
-        st.bar_chart(prob_df.set_index("Outcome"))
+    st.divider()
 
-        # Highlight top class
-        top_idx = int(np.argmax(proba))
-        st.caption(
-            f"The model is most confident about **{classes[top_idx]}** "
-            f"({100 * float(np.max(proba)):.1f}%)."
-        )
-else:
-    st.caption("Toggle to see the model’s confidence for each possible outcome.")
-
-st.divider()
 
 
     # Bottom action buttons (two blues via CSS column selectors)
