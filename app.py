@@ -17,6 +17,8 @@ st.markdown(
     .pill { display:inline-block; padding: .25rem .6rem; border-radius: 999px; background:#f5f5f7; margin-right:.4rem; font-size:.85rem; }
     .muted { color:#777; font-size:.9rem; }
     .section { border:1px solid #eee; border-radius: 12px; padding: 16px; background: #fff; }
+    ul.reason-list { margin: .5rem 0 0 1.2rem; }
+    ul.reason-list li { margin: .15rem 0; }
     </style>
     """,
     unsafe_allow_html=True
@@ -158,47 +160,40 @@ def _prettify_feat_name(name: str) -> str:
                 .replace("day_of_week", "day of week")
                 .replace("is_weekend", "weekend"))
 
-def _humanize_onehot(nice_name: str) -> str:
+def _humanize_onehot(nice_name: str):
     """
-    Turn one-hot names like 'payment method_Cash' into a friendly phrase.
-    We explicitly map only user-friendly categories (payment/time band/vehicle).
+    Turn one-hot like 'payment method_Cash' into ('Cash payment', 'factor text').
+    We keep only user-friendly categories; skip Area-* categories.
     """
     if "_" not in nice_name:
         return None
     base, val = nice_name.split("_", 1)
-
     base_norm = (base.replace("payment_method", "payment method")
                       .replace("vehicle_type", "vehicle type")
                       .replace("time_band", "time band")
                       .strip())
 
-    # Limit to categories users understand easily
-    if base_norm not in {"payment method", "vehicle type", "time band"}:
-        return None  # skip Area-* categories to avoid awkward text
-
     if base_norm == "payment method":
-        return f"Paying with **{val}**"
+        return "Cash payment" if val == "Cash" else "Card payment"
     if base_norm == "vehicle type":
-        return f"Choosing a **{val}**"
+        return f"{val} vehicle"
     if base_norm == "time band":
-        return f"Booking at **{val.lower()}**"
-    return None
+        return f"{val.capitalize()} time"
+    return None  # skip others to avoid awkward text
 
-def _friendly_polarity(phrase: str, inc: bool, predicted_label: str) -> str:
+def _direction_phrase(inc: bool, predicted_label: str):
     """
-    Make the direction sentence natural for the predicted class.
-    If predicted is a cancellation class -> talk about 'cancellation risk'.
-    If predicted is 'Success' -> talk about 'success likelihood'.
+    Map direction to human phrases depending on predicted class.
     """
     is_success = "success" in predicted_label.lower()
     if is_success:
-        return f"{phrase} tends to **increase success**" if inc else f"{phrase} tends to **reduce success**"
+        return "helped **increase success**" if inc else "helped **reduce success**"
     else:
-        return f"{phrase} tends to **increase cancellation risk**" if inc else f"{phrase} tends to **reduce cancellation risk**"
+        return "helped **increase cancellation risk**" if inc else "helped **reduce cancellation risk**"
 
-def _humanize_numeric(base_col: str, raw_val, inc: bool, predicted_label: str) -> str:
+def _humanize_numeric(base_col: str, raw_val):
     """
-    Convert booking-time numeric features into friendly statements with direction.
+    Human title for numeric features using ORIGINAL value (no scaled numbers).
     """
     try:
         v = float(raw_val)
@@ -206,58 +201,37 @@ def _humanize_numeric(base_col: str, raw_val, inc: bool, predicted_label: str) -
         v = None
 
     if base_col == "pickup_cancel_rate":
-        phrase = "Higher cancellations near the pickup area"
-        if v is not None:
-            phrase = "Higher cancellations near the pickup area" if v >= 0.15 else "Lower cancellations near the pickup area"
-        return _friendly_polarity(phrase, inc, predicted_label)
-
+        return "Higher cancellations near pickup" if (v is not None and v >= 0.15) else "Lower cancellations near pickup"
     if base_col == "drop_cancel_rate":
-        phrase = "Higher cancellations near the drop area"
-        if v is not None:
-            phrase = "Higher cancellations near the drop area" if v >= 0.15 else "Lower cancellations near the drop area"
-        return _friendly_polarity(phrase, inc, predicted_label)
-
+        return "Higher cancellations near drop" if (v is not None and v >= 0.15) else "Lower cancellations near drop"
     if base_col == "pickup_drop_pair_freq":
-        phrase = "This route is **common**" if (v is not None and v >= 30) else "This route is **less common**"
-        # Common routes generally correlate with smoother trips; rarer routes add uncertainty
-        return _friendly_polarity(phrase, inc, predicted_label)
-
+        # Do not assert common/rare effects; keep neutral wording
+        return "This pickup→drop route pattern"
     if base_col == "hour_of_day":
-        hour_txt = f"around **{int(raw_val):02d}:00**" if raw_val is not None else "at this hour"
-        phrase = f"Booking time {hour_txt}"
-        return _friendly_polarity(phrase, inc, predicted_label)
-
+        return f"Booking around {int(v):02d}:00" if v is not None else "Booking time"
     if base_col == "day_of_week":
         try:
-            idx = int(raw_val) % 7
-            phrase = f"Booking on **{DAY_NAMES[idx]}**"
+            return f"Booking on {DAY_NAMES[int(v) % 7]}"
         except Exception:
-            phrase = "The day of week"
-        return _friendly_polarity(phrase, inc, predicted_label)
-
+            return "Day of week"
     if base_col == "is_weekend":
-        phrase = "Booking on the **weekend**" if int(raw_val) == 1 else "Booking on a **weekday**"
-        return _friendly_polarity(phrase, inc, predicted_label)
+        return "Weekend booking" if int(v) == 1 else "Weekday booking"
+    return base_col
 
-    # Fallback
-    phrase = f"{base_col}"
-    return _friendly_polarity(phrase, inc, predicted_label)
-
-def explain_with_importances(input_df: pd.DataFrame, pre, clf, predicted_label: str, top_k: int = 3) -> str:
+def explain_with_importances(input_df: pd.DataFrame, pre, clf, predicted_label: str, top_k: int = 3):
     """
-    Lightweight, dependency-free explanation in plain language.
-    - Uses RF global importances as a proxy for local influence.
-    - Builds sentences that read like: "Cash payments tend to cancel more", "Night time increases risk".
+    Produces a short bullet list of human-friendly reasons.
+    Uses RF global importances as a local proxy and avoids awkward claims.
     """
     try:
         if pre is None or not hasattr(clf, "feature_importances_"):
-            return "A short explanation isn’t available for this model."
+            return ["A short explanation isn’t available for this model."]
 
         Xtr = pre.transform(input_df)
         x = np.asarray(Xtr.toarray()[0]) if hasattr(Xtr, "toarray") else np.asarray(Xtr[0])
         importances = np.asarray(clf.feature_importances_)
         if importances.shape[0] != x.shape[0]:
-            return "The model used several signals for this prediction."
+            return ["The model combined several signals for this prediction."]
 
         contrib = x * importances
         order = np.argsort(np.abs(contrib))[::-1]
@@ -267,51 +241,45 @@ def explain_with_importances(input_df: pd.DataFrame, pre, clf, predicted_label: 
         except Exception:
             names = np.array([f"feature_{i}" for i in range(len(importances))])
 
-        bits = []
+        reasons = []
         for idx in order:
-            if len(bits) >= top_k:
+            if len(reasons) >= top_k:
                 break
 
             raw_name = str(names[idx])
-            inc = contrib[idx] > 0  # direction for the predicted class
+            inc = bool(contrib[idx] > 0)  # direction toward predicted class
 
+            # Numeric
             if raw_name.startswith("num__"):
                 base_col = raw_name.split("__", 1)[1]
                 raw_val = input_df.iloc[0].get(base_col, None)
-                sentence = _humanize_numeric(base_col, raw_val, inc, predicted_label)
-                bits.append(sentence)
+                title = _humanize_numeric(base_col, raw_val)
+                reasons.append(f"{title} {_direction_phrase(inc, predicted_label)}")
                 continue
 
-            # categorical one-hot
-            nice = _prettify_feat_name(raw_name)
-            # only mention active categories
+            # Categorical (mention only the active category)
             if x[idx] <= 0.5:
                 continue
-
-            phrase = _humanize_onehot(nice)
-            if phrase is None:
-                # Skip Area-* to avoid awkward "Area-12" phrasing
+            nice = _prettify_feat_name(raw_name)
+            label = _humanize_onehot(nice)
+            if label is None:
+                # Skip categories like Area-* to avoid clunky text
                 continue
-            bits.append(_friendly_polarity(phrase, inc, predicted_label))
+            reasons.append(f"{label} {_direction_phrase(inc, predicted_label)}")
 
-        # Remove duplicates while preserving order
-        seen = set()
-        deduped = []
-        for b in bits:
-            if b not in seen:
-                deduped.append(b); seen.add(b)
+        # De-duplicate
+        seen, clean = set(), []
+        for r in reasons:
+            if r not in seen:
+                clean.append(r); seen.add(r)
 
-        if not deduped:
-            return "The model combined several subtle signals for this prediction."
+        if not clean:
+            clean = ["The model combined several subtle signals; no single factor dominated."]
 
-        # Join nicely
-        if len(deduped) == 1:
-            return f"This prediction was mainly influenced by: {deduped[0]}."
-        if len(deduped) == 2:
-            return f"This prediction was mainly influenced by {deduped[0]} and {deduped[1]}."
-        return f"This prediction was mainly influenced by {', '.join(deduped[:-1])}, and {deduped[-1]}."
+        return clean
+
     except Exception:
-        return "The model combined several signals for this prediction."
+        return ["The model combined several signals for this prediction."]
 
 # ==============================
 # Session State
@@ -406,7 +374,7 @@ if st.session_state.ui_stage == "predicted":
     else:
         st.warning(f"⚠️ Predicted Booking Status: **{pred}**")
 
-    # --- Why this prediction? (chips + friendly text)
+    # --- Why this prediction? (chips + friendly bullet list)
     with st.container():
         st.markdown("#### 🧠 Why this prediction?")
         chips = [
@@ -419,9 +387,9 @@ if st.session_state.ui_stage == "predicted":
         ]
         st.markdown(" ".join(chips), unsafe_allow_html=True)
 
-        # Friendly, class-aware explanation
-        explanation = explain_with_importances(input_df, pre, clf, str(pred), top_k=3)
-        st.write(explanation)
+        reasons = explain_with_importances(input_df, pre, clf, str(pred), top_k=3)
+        # Render as bullets for readability
+        st.markdown("<ul class='reason-list'>" + "".join([f"<li>{r}</li>" for r in reasons]) + "</ul>", unsafe_allow_html=True)
 
     st.divider()
 
