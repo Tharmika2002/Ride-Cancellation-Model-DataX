@@ -6,19 +6,152 @@ import datetime as dt
 from pathlib import Path
 
 # ==============================
-# Page & theme
+# Page & Theme
 # ==============================
 st.set_page_config(page_title="Ride Cancellation Predictor — Random Forest", layout="centered")
+
+# ----- Luca Davinci palette (from your image)
+WARM_YELLOW = "#FEBA53"  # background
+BROWN       = "#8A5438"
+DARK_NAVY   = "#081A2D"
+DEEP_BLUE   = "#05355D"  # primary action
+BOLD_BLUE   = "#15608B"  # headings / accents
+LIGHT_BLUE  = "#549ABE"  # input block background
+WHITE       = "#FFFFFF"
+
 st.markdown(
-    """
+    f"""
     <style>
-    .big-title { font-size: 2rem; font-weight: 700; margin-bottom: .25rem; }
-    .subtitle { color: #666; margin-bottom: 1.5rem; }
-    .pill { display:inline-block; padding: .25rem .6rem; border-radius: 999px; background:#f5f5f7; margin-right:.4rem; font-size:.85rem; }
-    .muted { color:#777; font-size:.9rem; }
-    .section { border:1px solid #eee; border-radius: 12px; padding: 16px; background: #fff; }
-    ul.reason-list { margin: .5rem 0 0 1.2rem; }
-    ul.reason-list li { margin: .15rem 0; }
+    /* Font (fallbacks if Google fails) */
+    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@500;700&display=swap');
+
+    :root {{
+      --warm-yellow: {WARM_YELLOW};
+      --brown: {BROWN};
+      --dark-navy: {DARK_NAVY};
+      --deep-blue: {DEEP_BLUE};
+      --bold-blue: {BOLD_BLUE};
+      --light-blue: {LIGHT_BLUE};
+      --white: {WHITE};
+    }}
+
+    /* App background */
+    .stApp {{
+      background: var(--warm-yellow);
+      background-attachment: fixed;
+    }}
+
+    /* Global text color tuning for contrast on yellow bg */
+    .stApp, .stApp p, .stApp label, .stApp li, .stApp span {{
+      color: #0d1b2a;
+      font-weight: 500;
+    }}
+
+    /* Title */
+    .big-title {{
+      font-family: 'Poppins', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 2.2rem;
+      font-weight: 700;
+      text-align: center;
+      color: var(--bold-blue);
+      letter-spacing: .3px;
+      margin: .25rem 0 .5rem 0;
+    }}
+
+    .subtitle {{
+      color: #1f3147cc;
+      text-align: center;
+      margin-bottom: 1.25rem;
+    }}
+
+    /* Card/Section shells */
+    .section {{
+      border: 0;
+      border-radius: 16px;
+      padding: 18px 18px 14px 18px;
+      background: var(--dark-navy);   /* form wrapper "another color" */
+      box-shadow: 0 6px 20px rgba(0,0,0,.15);
+    }}
+
+    /* Input panel with light-blue background in the center */
+    .input-panel {{
+      border-radius: 14px;
+      padding: 14px;
+      background: var(--light-blue); /* your light-blue */
+      margin-top: 6px;
+    }}
+
+    /* Center the whole booking-details block */
+    .centered-container {{
+      max-width: 820px;
+      margin: 0 auto;
+    }}
+
+    /* Make Streamlit widget labels readable on dark form bg */
+    .section :is(label, .stMarkdown p, .stDateInput, .stTimeInput) * {{
+      color: var(--white) !important;
+    }}
+
+    /* Make inputs white inside */
+    .input-panel .stSelectbox div[data-baseweb="select"] > div,
+    .input-panel .stTextInput input,
+    .input-panel .stDateInput input,
+    .input-panel .stTimeInput input {{
+      background: var(--white) !important;
+      color: #0d1b2a !important;
+      border-radius: 10px !important;
+      border: 1px solid #e7eef6 !important;
+    }}
+
+    /* Chips under "Why this prediction?" */
+    .pill {{
+      display:inline-block; padding:.25rem .6rem; border-radius:999px;
+      background:#f5f8fb; margin:.25rem .35rem .35rem 0; font-size:.85rem; color:#243b53;
+      border: 1px solid #e6eef7;
+    }}
+    ul.reason-list {{ margin:.5rem 0 0 1.2rem; }}
+    ul.reason-list li {{ margin:.2rem 0; }}
+
+    /* Buttons — scoped colors by section */
+    /* 1) Landing CTA */
+    #landing .stButton > button {{
+      background: var(--deep-blue);
+      color: var(--white);
+      border-radius: 12px;
+      border: none;
+    }}
+
+    /* 2) Predict button in inputs */
+    #inputs-section .stForm .stButton > button {{
+      background: var(--deep-blue); /* blue primary */
+      color: var(--white);
+      border-radius: 12px;
+      border: none;
+    }}
+
+    /* 3) "Show confidence by outcome" button uses brown */
+    #confidence-block .stButton > button {{
+      background: var(--brown);
+      color: var(--white);
+      border-radius: 10px;
+      border: none;
+    }}
+
+    /* 4) Action buttons at bottom: New Prediction (bold-blue), Back to Start (deep-blue) */
+    #predicted-actions .stButton:nth-of-type(1) > button {{
+      background: var(--bold-blue);
+      color: var(--white);
+      border-radius: 12px;
+      border: none;
+    }}
+    #predicted-actions .stButton:nth-of-type(2) > button {{
+      background: var(--deep-blue);
+      color: var(--white);
+      border-radius: 12px;
+      border: none;
+    }}
+
+    /* Streamlit default success/warning/error colors kept */
     </style>
     """,
     unsafe_allow_html=True
@@ -92,7 +225,7 @@ try:
         dff = pd.read_csv(pair_freqs_path)
         req = {"Pickup Location", "Drop Location", "pickup_drop_pair_freq"}
         if req.issubset(dff.columns):
-            pair_freqs = { (r["Pickup Location"], r["Drop Location"]): r["pickup_drop_pair_freq"] for _, r in dff.iterrows() }
+            pair_freqs = {{ (r["Pickup Location"], r["Drop Location"]): r["pickup_drop_pair_freq"] for _, r in dff.iterrows() }}
 except Exception:
     pair_freqs = {}
 
@@ -149,16 +282,9 @@ def build_input_df(booking_dt, pickup_location, drop_location, vehicle_type, pay
     }
     return pd.DataFrame([row]), tf
 
-# ---------- Human-friendly, rule-based explanation (class-consistent) ----------
+# ---------- Human-friendly, rule-based explanation ----------
 def reasons_from_rules(row: pd.Series):
-    """
-    Build two lists of reasons:
-      - pros_success: items that usually help success / reduce cancellation
-      - pros_cancel : items that usually increase cancellation risk
-    The wording is concise and human.
-    """
-    pros_success = []
-    pros_cancel  = []
+    pros_success, pros_cancel = [], []
 
     # Payment method
     if row.get("payment_method") == "Cash":
@@ -183,7 +309,6 @@ def reasons_from_rules(row: pd.Series):
     # Historical cancellation rates
     pk = float(row.get("pickup_cancel_rate", 0))
     dp = float(row.get("drop_cancel_rate", 0))
-    # thresholds can be tuned; 0.15 = 15% historical cancellation rate
     if pk >= 0.15:
         pros_cancel.append("Higher cancellations near pickup area")
     else:
@@ -200,14 +325,14 @@ def reasons_from_rules(row: pd.Series):
     else:
         pros_cancel.append("Less common pickup→drop route")
 
-    # Vehicle type (keep neutral unless you have evidence)
+    # Vehicle type
     vt = row.get("vehicle_type")
     if vt in ("Mini", "Sedan"):
         pros_success.append(f"{vt} vehicle")
     elif vt in ("Bike", "Auto"):
         pros_cancel.append(f"{vt} vehicle")
 
-    # Remove duplicates while keeping order
+    # Dedupe
     def dedupe(seq):
         seen, out = set(), []
         for s in seq:
@@ -218,18 +343,11 @@ def reasons_from_rules(row: pd.Series):
     return dedupe(pros_success), dedupe(pros_cancel)
 
 def pick_reasons_for_prediction(row_df: pd.DataFrame, predicted_label: str, top_k: int = 3):
-    """
-    Choose up to top_k reasons matching the predicted side:
-      - If prediction is a cancellation class → pick from pros_cancel
-      - If prediction is Success             → pick from pros_success
-    """
     row = row_df.iloc[0]
     pros_success, pros_cancel = reasons_from_rules(row)
-
     is_success = "success" in predicted_label.lower()
     pool = pros_success if is_success else pros_cancel
 
-    # Priority order (tweakable)
     order = [
         "Higher cancellations near pickup area",
         "Higher cancellations near drop area",
@@ -249,19 +367,12 @@ def pick_reasons_for_prediction(row_df: pd.DataFrame, predicted_label: str, top_
         "Sedan vehicle",
         "Weekday booking",
     ]
-
-    ranked = [r for r in order if r in pool]
-    if not ranked:
-        ranked = pool
-
+    ranked = [r for r in order if r in pool] or pool
     reasons = ranked[:top_k]
-
-    # Attach direction that matches predicted class
     if is_success:
         reasons = [f"{r} **helped increase success**" for r in reasons]
     else:
         reasons = [f"{r} **increased cancellation risk**" for r in reasons]
-
     return reasons
 
 # ==============================
@@ -282,14 +393,15 @@ if "last_proba" not in st.session_state:
 # Header
 # ==============================
 st.markdown('<div class="big-title">🚖 Ride Cancellation Prediction</div>', unsafe_allow_html=True)
+st.markdown('<p class="subtitle">Predict booking status and see why the model thinks so.</p>', unsafe_allow_html=True)
 
 # ==============================
 # Landing: single CTA
 # ==============================
 if st.session_state.ui_stage == "landing":
-    st.markdown('<div class="section">', unsafe_allow_html=True)
+    st.markdown('<div id="landing" class="section centered-container">', unsafe_allow_html=True)
     st.write("Click below to check your booking’s predicted status.")
-    if st.button("🔎 Check your prediction", type="primary", use_container_width=True):
+    if st.button("🔎 Check your prediction", use_container_width=True):
         st.session_state.ui_stage = "inputs"
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -297,8 +409,12 @@ if st.session_state.ui_stage == "landing":
 # Inputs form
 # ==============================
 if st.session_state.ui_stage == "inputs":
+    st.markdown('<div id="inputs-section" class="section centered-container">', unsafe_allow_html=True)
     with st.form("inputs-form", clear_on_submit=False):
-        st.markdown("### 📋 Booking details")
+        st.markdown('<h3 style="color: var(--white); text-align:center; margin:0 0 10px;">📋 Booking details</h3>', unsafe_allow_html=True)
+
+        # Light-blue panel that wraps inputs
+        st.markdown('<div class="input-panel">', unsafe_allow_html=True)
         c1, c2 = st.columns(2)
         with c1:
             pickup_location = st.selectbox("Pickup Location", AREAS, index=0)
@@ -307,12 +423,13 @@ if st.session_state.ui_stage == "inputs":
         with c2:
             drop_location = st.selectbox("Drop Location", AREAS, index=1)
 
-        st.markdown("#### 🗓️ Date & Time")
-        dcol, tcol = st.columns([1,1])
+        st.markdown('<div style="height:8px;"></div>', unsafe_allow_html=True)
+        dcol, tcol = st.columns(2)
         with dcol:
             booking_date = st.date_input("Date", value=dt.date.today())
         with tcol:
             booking_time = st.time_input("Time", value=dt.datetime.now().time())
+        st.markdown('</div>', unsafe_allow_html=True)  # close input-panel
 
         submitted = st.form_submit_button("✨ Predict ride status", use_container_width=True)
         if submitted:
@@ -335,7 +452,8 @@ if st.session_state.ui_stage == "inputs":
             st.session_state.last_pred = pred
             st.session_state.last_proba = proba
             st.session_state.ui_stage = "predicted"
-            st.rerun()   # ✅ updated (was st.experimental_rerun)
+            st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # ==============================
 # Predicted view
@@ -347,17 +465,20 @@ if st.session_state.ui_stage == "predicted":
     proba     = st.session_state.last_proba
     classes   = get_classes()
 
-    st.markdown("### 🔮 Prediction")
-    pred_lower = str(pred).lower()
-    if "success" in pred_lower:
-        st.success(f"✅ Predicted Booking Status: **{pred}**")
-    elif "cancel" in pred_lower:
-        st.error(f"❌ Predicted Booking Status: **{pred}**")
-    else:
-        st.warning(f"⚠️ Predicted Booking Status: **{pred}**")
-
-    # --- Why this prediction?
+    # White card for prediction area (you asked for white “for this prediction”)
     with st.container():
+        st.markdown('<div class="centered-container" style="background:white;border-radius:16px;padding:18px;box-shadow:0 6px 20px rgba(0,0,0,.12);">', unsafe_allow_html=True)
+
+        st.markdown("### 🔮 Prediction")
+        pred_lower = str(pred).lower()
+        if "success" in pred_lower:
+            st.success(f"✅ Predicted Booking Status: **{pred}**")
+        elif "cancel" in pred_lower:
+            st.error(f"❌ Predicted Booking Status: **{pred}**")
+        else:
+            st.warning(f"⚠️ Predicted Booking Status: **{pred}**")
+
+        # --- Why this prediction?
         st.markdown("#### 🧠 Why this prediction?")
         chips = [
             f'<span class="pill">Hour: {time_feats["hour_of_day"]}</span>',
@@ -372,27 +493,34 @@ if st.session_state.ui_stage == "predicted":
         reasons = pick_reasons_for_prediction(input_df, str(pred), top_k=3)
         st.markdown("<ul class='reason-list'>" + "".join([f"<li>{r}</li>" for r in reasons]) + "</ul>", unsafe_allow_html=True)
 
-    st.divider()
+        st.divider()
 
-    # --- Confidence chart toggle ---
-    st.markdown("### 🤝 How confident is this prediction?")
-    if st.button("Show confidence by outcome"):
-        if proba is None:
-            st.info("Confidence details aren’t available for this model.")
+        # --- Confidence chart toggle (brown button)
+        st.markdown('<div id="confidence-block">', unsafe_allow_html=True)
+        if st.button("Show confidence by outcome"):
+            if proba is None:
+                st.info("Confidence details aren’t available for this model.")
+            else:
+                prob_df = pd.DataFrame({"Outcome": classes, "Confidence": proba})
+                st.bar_chart(prob_df.set_index("Outcome"))
+                top_idx = int(np.argmax(proba))
+                st.caption(f"The model is most confident about **{classes[top_idx]}** "
+                           f"({100*float(np.max(proba)):.1f}%).")
         else:
-            prob_df = pd.DataFrame({"Outcome": classes, "Confidence": proba})
-            st.bar_chart(prob_df.set_index("Outcome"))
-            top_idx = int(np.argmax(proba))
-            st.caption(f"The model is most confident about **{classes[top_idx]}** "
-                       f"({100*float(np.max(proba)):.1f}%).")
-    else:
-        st.caption("Click to see the model’s confidence for each possible outcome.")
+            st.caption("Click to see the model’s confidence for each possible outcome.")
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    st.divider()
-    cols = st.columns(2)
-    if cols[0].button("← New prediction", use_container_width=True):
-        st.session_state.ui_stage = "inputs"
-        st.rerun()
-    if cols[1].button("🏠 Back to start", use_container_width=True):
-        st.session_state.ui_stage = "landing"
-        st.rerun()
+        st.divider()
+
+        # Bottom action buttons with two different blues
+        st.markdown('<div id="predicted-actions">', unsafe_allow_html=True)
+        cols = st.columns(2)
+        if cols[0].button("← New prediction", use_container_width=True):
+            st.session_state.ui_stage = "inputs"
+            st.rerun()
+        if cols[1].button("🏠 Back to start", use_container_width=True):
+            st.session_state.ui_stage = "landing"
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        st.markdown('</div>', unsafe_allow_html=True)  # close white card
