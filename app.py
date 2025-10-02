@@ -71,6 +71,47 @@ def predict_proba_df(df: pd.DataFrame):
 
 
 # ==============================
+# Priors & frequencies (CSV-if-available, otherwise fallback)
+# ==============================
+pickup_priors_path = Path("pickup_priors.csv")
+drop_priors_path   = Path("drop_priors.csv")
+pair_freqs_path    = Path("pair_freqs.csv")
+
+# Initialize dicts so helpers below always have them
+pickup_priors: dict = {}
+drop_priors: dict   = {}
+pair_freqs: dict    = {}
+
+# Try loading CSVs (quietly ignore if missing)
+try:
+    if pickup_priors_path.exists():
+        dfp = pd.read_csv(pickup_priors_path)
+        if {"Pickup Location", "pickup_cancel_rate"}.issubset(dfp.columns):
+            pickup_priors = dict(zip(dfp["Pickup Location"], dfp["pickup_cancel_rate"]))
+except Exception:
+    pickup_priors = {}
+
+try:
+    if drop_priors_path.exists():
+        dfd = pd.read_csv(drop_priors_path)
+        if {"Drop Location", "drop_cancel_rate"}.issubset(dfd.columns):
+            drop_priors = dict(zip(dfd["Drop Location"], dfd["drop_cancel_rate"]))
+except Exception:
+    drop_priors = {}
+
+try:
+    if pair_freqs_path.exists():
+        dff = pd.read_csv(pair_freqs_path)
+        req = {"Pickup Location", "Drop Location", "pickup_drop_pair_freq"}
+        if req.issubset(dff.columns):
+            pair_freqs = {
+                (r["Pickup Location"], r["Drop Location"]): r["pickup_drop_pair_freq"]
+                for _, r in dff.iterrows()
+            }
+except Exception:
+    pair_freqs = {}
+
+# ==============================
 # Helpers
 # ==============================
 AREAS = [f"Area-{i}" for i in range(1, 51)]
@@ -89,18 +130,28 @@ def derive_time_features(ts: dt.datetime):
     return {"hour_of_day": hour, "day_of_week": dow, "is_weekend": weekend, "time_band": band, "day_name": DAY_NAMES[dow]}
 
 def get_pair_freq(pickup, drop):
+    # Use CSV value if available; otherwise fallback heuristic
     if (pickup, drop) in pair_freqs:
-        return float(pair_freqs[(pickup, drop)])
+        try:
+            return float(pair_freqs[(pickup, drop)])
+        except Exception:
+            pass
     return 50.0 if pickup == drop else 10.0
 
 def get_pickup_prior(pickup, time_band):
     if pickup in pickup_priors:
-        return float(pickup_priors[pickup])
+        try:
+            return float(pickup_priors[pickup])
+        except Exception:
+            pass
     return 0.25 if time_band == "Night" else 0.10
 
 def get_drop_prior(drop, time_band):
     if drop in drop_priors:
-        return float(drop_priors[drop])
+        try:
+            return float(drop_priors[drop])
+        except Exception:
+            pass
     return 0.20 if time_band == "Night" else 0.08
 
 def build_input_df(booking_dt, pickup_location, drop_location, vehicle_type, payment_method):
@@ -271,10 +322,8 @@ if st.session_state.ui_stage == "predicted":
         if st.button("Explain with SHAP (if available)"):
             try:
                 import shap
-                # Get preprocessor + classifier, even for dict bundle
                 pre_local = pre
                 clf_local = clf
-                # Transform and explain
                 X_trans = pre_local.transform(input_df) if pre_local is not None else input_df
                 explainer = shap.TreeExplainer(clf_local)
                 shap_values = explainer.shap_values(X_trans)
@@ -286,7 +335,7 @@ if st.session_state.ui_stage == "predicted":
                 else:
                     vals = np.abs(shap_values[0])  # fallback
 
-                # Try to get feature names (from preprocessor when present)
+                # Get feature names if possible
                 try:
                     names = pre_local.get_feature_names_out()
                 except Exception:
