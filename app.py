@@ -389,8 +389,8 @@ with st.container():
     st.markdown("".join(chips), unsafe_allow_html=True)
 
 
-        reasons = pick_reasons_for_prediction(input_df, str(pred), top_k=3)
-        st.markdown("<ul class='reason-list'>" + "".join([f"<li>{r}</li>" for r in reasons]) + "</ul>", unsafe_allow_html=True)
+    reasons = pick_reasons_for_prediction(input_df, str(pred), top_k=3)
+    st.markdown("<ul class='reason-list'>" + "".join([f"<li>{r}</li>" for r in reasons]) + "</ul>", unsafe_allow_html=True)
 
     st.divider()
 
