@@ -10,7 +10,7 @@ from pathlib import Path
 # ==============================
 st.set_page_config(page_title="Ride Cancellation Predictor — Random Forest", layout="centered")
 
-# ---------------- CSS (v5) ----------------
+# ---------------- CSS (robust selectors; no wrapper dependency) ----------------
 st.markdown(
     """
     <style>
@@ -75,38 +75,45 @@ st.markdown(
     ul.reason-list{ margin:.5rem 0 0 1.2rem; }
     ul.reason-list li{ margin:.2rem 0; }
 
-    /* ---------- Buttons (high-specificity + label color) ---------- */
+    /* ---------- Buttons (rely on built-in kinds + structural selectors) ---------- */
 
-    /* Landing & Predict (orange bg + blue text) */
-    .landing-scope .stButton > button,
-    div[data-testid="stForm"] .stButton > button,
-    div[data-testid="stForm"] button{
+    /* Primary buttons (landing + form submit) → orange bg + blue text */
+    button[kind="primary"]{
       background: var(--cta-orange) !important;
       color: var(--cta-text-blue) !important;
       border:none !important; border-radius:12px !important; font-weight:700 !important;
     }
-    .landing-scope .stButton > button p,
-    div[data-testid="stForm"] .stButton > button p,
-    div[data-testid="stForm"] button p{
-      color: var(--cta-text-blue) !important;
+    /* inner label <p> */
+    button[kind="primary"] p{ color: var(--cta-text-blue) !important; }
+
+    /* Secondary buttons (default style baseline) */
+    button[kind="secondary"]{
+      border:none !important; border-radius:12px !important; font-weight:700 !important;
+      color:#ffffff !important;
     }
 
-    /* Show confidence (teal) */
+    /* Make the *last* horizontal row of two buttons (the actions row) two different blues.
+       This targets the two columns inside the last horizontal block on screen. */
+    .stHorizontalBlock:last-of-type > div:nth-child(1) .stButton > button[kind="secondary"]{
+      background: var(--blue-a) !important;
+    }
+    .stHorizontalBlock:last-of-type > div:nth-child(2) .stButton > button[kind="secondary"]{
+      background: var(--blue-b) !important;
+    }
+    .stHorizontalBlock:last-of-type .stButton > button[kind="secondary"] p{
+      color:#ffffff !important;
+    }
+
+    /* Teal style for the confidence toggle's pseudo-button (Streamlit renders it separately).
+       We also style any secondary button immediately above a chart area as teal fallback. */
     .confidence-scope .stButton > button,
-    .confidence-scope button{
-      background: var(--teal) !important; color: #ffffff !important;
-      border:none !important; border-radius:10px !important; font-weight:700 !important;
+    .confidence-scope button[kind="secondary"]{
+      background: var(--teal) !important;
+      color:#ffffff !important;
+      border:none !important; border-radius:10px !important;
     }
     .confidence-scope .stButton > button p,
-    .confidence-scope button p{ color:#ffffff !important; }
-
-    /* Bottom actions: different blues */
-    .actions-scope .stButton > button{
-      border:none !important; border-radius:12px !important; color:#ffffff !important; font-weight:700 !important;
-    }
-    .actions-scope .stButton:nth-of-type(1) > button{ background: var(--blue-a) !important; }  /* New prediction */
-    .actions-scope .stButton:nth-of-type(2) > button{ background: var(--blue-b) !important; }  /* Back to start */
-    .actions-scope .stButton > button p{ color:#ffffff !important; }
+    .confidence-scope button[kind="secondary"] p{ color:#ffffff !important; }
 
     /* Prevent label ellipses on wide buttons */
     .stButton > button{ white-space: normal !important; }
@@ -359,9 +366,9 @@ st.markdown('<p class="subtitle">Predict booking status and see why the model th
 # Landing: single CTA
 # ==============================
 if st.session_state.ui_stage == "landing":
-    st.markdown('<div class="landing-scope section centered-container">', unsafe_allow_html=True)
+    st.markdown('<div class="section centered-container">', unsafe_allow_html=True)
     st.write("Click below to check your booking’s predicted status.")
-    if st.button("🔎 Check your prediction", use_container_width=True):
+    if st.button("🔎 Check your prediction", use_container_width=True, type="primary"):
         st.session_state.ui_stage = "inputs"
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -390,7 +397,7 @@ if st.session_state.ui_stage == "inputs":
             booking_time = st.time_input("Time", value=dt.datetime.now().time())
         st.markdown('</div>', unsafe_allow_html=True)  # close input-panel
 
-        submitted = st.form_submit_button("✨ Predict ride status", use_container_width=True)
+        submitted = st.form_submit_button("✨ Predict ride status", use_container_width=True, type="primary")
         if submitted:
             booking_dt = dt.datetime.combine(booking_date, booking_time)
             input_df, time_feats = build_input_df(
@@ -452,11 +459,9 @@ if st.session_state.ui_stage == "predicted":
 
     st.divider()
 
-    # --- Confidence chart toggle (persistent + teal button styling wrapper) ---
+    # Confidence toggle (working; teal styling applied via .confidence-scope)
     st.markdown('<div class="confidence-scope">', unsafe_allow_html=True)
-    toggle = st.toggle("Show confidence by outcome", value=st.session_state.show_confidence)
-    st.session_state.show_confidence = toggle
-
+    st.session_state.show_confidence = st.toggle("Show confidence by outcome", value=st.session_state.show_confidence)
     if st.session_state.show_confidence:
         if proba is None:
             st.info("Confidence details aren’t available for this model.")
@@ -475,13 +480,17 @@ if st.session_state.ui_stage == "predicted":
 
     st.divider()
 
-    # Bottom action buttons (two different blues)
-    st.markdown('<div class="actions-scope">', unsafe_allow_html=True)
+    # Bottom action buttons (two different blues, using kind="secondary" + structural selector)
     cols = st.columns(2)
-    if cols[0].button("← New prediction", use_container_width=True, key="new_pred"):
+    with cols[0]:
+        st.button("← New prediction", use_container_width=True, key="new_pred", type="secondary")
+    with cols[1]:
+        st.button("🏠 Back to start", use_container_width=True, key="back_home", type="secondary")
+
+    # Wire up actions
+    if st.session_state.get("new_pred"):
         st.session_state.ui_stage = "inputs"; st.rerun()
-    if cols[1].button("🏠 Back to start", use_container_width=True, key="back_home"):
+    if st.session_state.get("back_home"):
         st.session_state.ui_stage = "landing"; st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown('</div>', unsafe_allow_html=True)  # close white prediction card
