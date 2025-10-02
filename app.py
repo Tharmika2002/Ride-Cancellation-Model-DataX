@@ -548,7 +548,7 @@ if st.session_state.ui_stage == "predicted":
 
     import altair as alt  # make sure this is at the top with your imports
 
-    # Confidence toggle
+        # Confidence toggle
     st.session_state.show_confidence = st.toggle(
         "Show confidence by outcome",
         value=st.session_state.show_confidence
@@ -564,25 +564,28 @@ if st.session_state.ui_stage == "predicted":
                 "Confidence": proba.astype(float)
             })
 
-            # Orange bar chart with Altair
-       chart = (
-             alt.Chart(prob_df)
-             .mark_bar(color="#e45528")
-             .encode(
-               y=alt.Y("Outcome:N", sort="-x"),
-               x=alt.X("Confidence:Q", scale=alt.Scale(domain=[0,1]), axis=alt.Axis(format="%")),
-               tooltip=[alt.Tooltip("Outcome:N"), alt.Tooltip("Confidence:Q", format=".1%")]
-    )
-)
+            # Horizontal orange bar chart (strict 0–1 scale)
+            chart = (
+                alt.Chart(prob_df)
+                .mark_bar(color="#e45528")
+                .encode(
+                    y=alt.Y("Outcome:N", sort="-x", axis=alt.Axis(title="Outcome")),
+                    x=alt.X("Confidence:Q",
+                            scale=alt.Scale(domain=[0, 1]),
+                            axis=alt.Axis(format="%", title="Confidence")),
+                    tooltip=[alt.Tooltip("Outcome:N"),
+                             alt.Tooltip("Confidence:Q", format=".1%")]
+                )
+                .properties(height=280)
+            )
 
-
-            # Add labels on top of bars
+            # Add percentage labels inside bars
             labels = (
                 alt.Chart(prob_df)
-                .mark_text(dy=-6, color="#05355D", fontWeight="bold")
+                .mark_text(align="left", dx=5, color="#05355D", fontWeight="bold")
                 .encode(
-                    x="Outcome:N",
-                    y="Confidence:Q",
+                    y="Outcome:N",
+                    x="Confidence:Q",
                     text=alt.Text("Confidence:Q", format=".0%")
                 )
             )
@@ -599,6 +602,7 @@ if st.session_state.ui_stage == "predicted":
         st.caption("Toggle to see the model’s confidence for each possible outcome.")
 
     st.divider()
+
 
 
 
