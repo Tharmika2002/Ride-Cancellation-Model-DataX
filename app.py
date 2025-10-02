@@ -546,7 +546,7 @@ if st.session_state.ui_stage == "predicted":
 
     st.divider()
 
-import altair as alt  # make sure this is at the top with your imports
+    import altair as alt  # make sure this is at the top with your imports
 
     # Confidence toggle
     st.session_state.show_confidence = st.toggle(
