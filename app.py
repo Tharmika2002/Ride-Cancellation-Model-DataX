@@ -147,51 +147,95 @@ def build_input_df(booking_dt, pickup_location, drop_location, vehicle_type, pay
     }
     return pd.DataFrame([row]), tf
 
-# Readable explanation using RF global importances (no SHAP)
+# ---------- Human-friendly explanation (no SHAP) ----------
 def _prettify_feat_name(name: str) -> str:
-    nice = name.replace("num__", "").replace("cat__encoder__", "")
-    nice = (nice.replace("pickup_cancel_rate", "pickup-area cancel rate")
-                 .replace("drop_cancel_rate", "drop-area cancel rate")
-                 .replace("pickup_drop_pair_freq", "route frequency")
-                 .replace("hour_of_day", "hour of day")
-                 .replace("day_of_week", "day of week")
-                 .replace("is_weekend", "weekend"))
-    return nice
+    return (name.replace("num__", "")
+                .replace("cat__encoder__", "")
+                .replace("pickup_cancel_rate", "pickup-area cancel rate")
+                .replace("drop_cancel_rate", "drop-area cancel rate")
+                .replace("pickup_drop_pair_freq", "route frequency")
+                .replace("hour_of_day", "hour of day")
+                .replace("day_of_week", "day of week")
+                .replace("is_weekend", "weekend"))
+
+def _humanize_onehot(name: str) -> str:
+    # Turn e.g. 'payment method_Cash' into 'payment method is Cash'
+    if "_" not in name:
+        return name
+    base, val = name.split("_", 1)
+    base = (base.replace("Pickup Location", "pickup location")
+                .replace("Drop Location", "drop location")
+                .replace("payment_method", "payment method")
+                .replace("vehicle_type", "vehicle type")
+                .replace("time_band", "time band"))
+    return f"{base} is {val}"
+
+def _humanize_numeric(base_col: str, raw_val):
+    if base_col == "pickup_cancel_rate":
+        return "higher pickup-area cancellation rate" if float(raw_val) >= 0.15 else "lower pickup-area cancellation rate"
+    if base_col == "drop_cancel_rate":
+        return "higher drop-area cancellation rate" if float(raw_val) >= 0.15 else "lower drop-area cancellation rate"
+    if base_col == "pickup_drop_pair_freq":
+        return "a common route" if float(raw_val) >= 30 else "a relatively rare route"
+    if base_col == "hour_of_day":
+        return f"the booking hour (~{int(raw_val):02d}:00)"
+    if base_col == "day_of_week":
+        idx = int(raw_val) if 0 <= int(raw_val) < 7 else int(raw_val) % 7
+        return f"the day ({DAY_NAMES[idx]})"
+    if base_col == "is_weekend":
+        return "it being a weekend" if int(raw_val) == 1 else "it being a weekday"
+    return f"{base_col} ≈ {raw_val}"
 
 def explain_with_importances(input_df: pd.DataFrame, pre, clf, top_k: int = 3) -> str:
     try:
         if pre is None or not hasattr(clf, "feature_importances_"):
-            return "Model-level feature importance is unavailable for this model."
+            return "A short explanation isn’t available for this model."
+
         Xtr = pre.transform(input_df)
         x = np.asarray(Xtr.toarray()[0]) if hasattr(Xtr, "toarray") else np.asarray(Xtr[0])
         importances = np.asarray(clf.feature_importances_)
         if importances.shape[0] != x.shape[0]:
             return "Could not align features for explanation."
+
         contrib = x * importances
         order = np.argsort(np.abs(contrib))[::-1][:top_k]
+
         try:
             names = pre.get_feature_names_out()
         except Exception:
             names = np.array([f"feature_{i}" for i in range(len(importances))])
-        pieces = []
+
+        bits = []
         for idx in order:
-            fname = _prettify_feat_name(str(names[idx]))
-            val = x[idx]
-            sign = "increased" if contrib[idx] > 0 else "decreased"
-            if "__" in fname and "Area-" in fname:
-                if val > 0.5:
-                    pieces.append(f"{fname} was active, which {sign} the likelihood")
+            raw_name = str(names[idx])
+            nice = _prettify_feat_name(raw_name)
+
+            if raw_name.startswith("num__"):
+                base_col = raw_name.split("__", 1)[1]
+                raw_val = input_df.iloc[0].get(base_col, None)
+                phrase = _humanize_numeric(base_col, raw_val)
             else:
-                pieces.append(f"{fname} (value ~ {val:.2f}) {sign} the likelihood")
-        if not pieces:
-            return "The model used multiple weak signals; no single driver dominated."
-        if len(pieces) == 1:
-            return "This prediction was mainly driven by " + pieces[0] + "."
-        if len(pieces) == 2:
-            return "This prediction was mainly driven by " + pieces[0] + " and " + pieces[1] + "."
-        return "This prediction was mainly driven by " + ", ".join(pieces[:-1]) + ", and " + pieces[-1] + "."
+                phrase = _humanize_onehot(nice)
+
+            inc = contrib[idx] > 0
+            direction_text = "increased the chance of this outcome" if inc else "reduced the chance of this outcome"
+
+            # For one-hot, only mention the active category
+            if raw_name.startswith("cat__") and x[idx] <= 0.5:
+                continue
+
+            bits.append(f"{phrase} {direction_text}")
+
+        if not bits:
+            return "The model combined several weaker signals; no single factor dominated."
+
+        if len(bits) == 1:
+            return f"This prediction was mainly driven by {bits[0]}."
+        if len(bits) == 2:
+            return f"This prediction was mainly driven by {bits[0]} and {bits[1]}."
+        return f"This prediction was mainly driven by {', '.join(bits[:-1])}, and {bits[-1]}."
     except Exception:
-        return "Could not generate a feature-importance explanation for this prediction."
+        return "Could not generate a short explanation for this prediction."
 
 # ==============================
 # Session State
@@ -303,15 +347,18 @@ if st.session_state.ui_stage == "predicted":
 
     st.divider()
 
-    # === Only visualization we keep: Class probabilities ===
+    # === Only visualization we keep: Class probabilities (on demand) ===
     st.markdown("### 📊 Class probability")
-    if proba is None:
-        st.info("Model does not expose probabilities.")
+    if st.button("Show class probabilities"):
+        if proba is None:
+            st.info("Model does not expose probabilities.")
+        else:
+            prob_df = pd.DataFrame({"Class": classes, "Probability": proba})
+            st.bar_chart(prob_df.set_index("Class"))
+            top_idx = int(np.argmax(proba))
+            st.caption(f"Top class: **{classes[top_idx]}** with {100*float(np.max(proba)):.1f}% confidence.")
     else:
-        prob_df = pd.DataFrame({"Class": classes, "Probability": proba})
-        st.bar_chart(prob_df.set_index("Class"))
-        top_idx = int(np.argmax(proba))
-        st.caption(f"Top class: **{classes[top_idx]}** with {100*float(np.max(proba)):.1f}% confidence.")
+        st.caption("Click the button to see the model’s class probabilities.")
 
     st.divider()
     cols = st.columns(2)
