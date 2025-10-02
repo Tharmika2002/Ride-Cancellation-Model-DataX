@@ -38,7 +38,10 @@ st.markdown(
       font-family:'Poppins', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
       font-size:2.2rem; font-weight:700; text-align:center; color:#15608B; margin:.25rem 0 .6rem;
     }
-    .subtitle{ color:#243b53; text-align:center; margin-bottom:1rem; }
+    .subtitle{ color:#243b53; text-align:center; margin-bottom:.6rem; }
+
+    /* Simple max-width wrapper */
+    .centered-container{ max-width: 860px; margin: 0 auto; }
 
     /* ---------- FORM APPEARANCE (blue/teal shell + off-white inner) ---------- */
     /* The form container itself */
@@ -120,6 +123,12 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+
+# ============== Small helper so app won't crash if the image is missing ==============
+def show_banner(path: str, caption: str | None = None):
+    p = Path(path)
+    if p.exists():
+        st.image(str(p).replace("\\", "/"), use_column_width=True, caption=caption)
 
 # ==============================
 # Model loader (Pipeline OR dict bundle)
@@ -361,6 +370,12 @@ if "show_confidence" not in st.session_state:
 st.markdown('<div class="big-title">🚖 Ride Cancellation Prediction</div>', unsafe_allow_html=True)
 st.markdown('<p class="subtitle">Predict booking status and see why the model thinks so.</p>', unsafe_allow_html=True)
 
+# --- Banner 1: always visible under subtitle ---
+with st.container():
+    st.markdown('<div class="centered-container">', unsafe_allow_html=True)
+    show_banner("images/banner1.png")
+    st.markdown('</div>', unsafe_allow_html=True)
+
 # ==============================
 # Landing: single CTA
 # ==============================
@@ -395,8 +410,8 @@ if st.session_state.ui_stage == "inputs":
         if submitted:
             booking_dt = dt.datetime.combine(booking_date, booking_time)
 
-            # Build features (copied from your helpers to keep file single-pass)
-            def derive_time_features(ts: dt.datetime):
+            # Build features inline (keeps file single-pass)
+            def _derive_time_features(ts: dt.datetime):
                 hour = ts.hour
                 dow = ts.weekday()
                 weekend = 1 if dow >= 5 else 0
@@ -406,32 +421,32 @@ if st.session_state.ui_stage == "inputs":
                 else: band = "Night"
                 return {"hour_of_day": hour, "day_of_week": dow, "is_weekend": weekend, "time_band": band, "day_name": ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"][dow]}
 
-            def get_pair_freq(pickup, drop):
+            def _get_pair_freq(pickup, drop):
                 if (pickup, drop) in pair_freqs:
                     try: return float(pair_freqs[(pickup, drop)])
                     except Exception: pass
                 return 50.0 if pickup == drop else 10.0
 
-            def get_pickup_prior(pickup, time_band):
+            def _get_pickup_prior(pickup, time_band):
                 if pickup in pickup_priors:
                     try: return float(pickup_priors[pickup])
                     except Exception: pass
                 return 0.25 if time_band == "Night" else 0.10
 
-            def get_drop_prior(drop, time_band):
+            def _get_drop_prior(drop, time_band):
                 if drop in drop_priors:
                     try: return float(drop_priors[drop])
                     except Exception: pass
                 return 0.20 if time_band == "Night" else 0.08
 
-            tf = derive_time_features(booking_dt)
+            tf = _derive_time_features(booking_dt)
             row = {
                 "hour_of_day": tf["hour_of_day"],
                 "day_of_week": tf["day_of_week"],
                 "is_weekend": tf["is_weekend"],
-                "pickup_cancel_rate": get_pickup_prior(pickup_location, tf["time_band"]),
-                "drop_cancel_rate": get_drop_prior(drop_location, tf["time_band"]),
-                "pickup_drop_pair_freq": get_pair_freq(pickup_location, drop_location),
+                "pickup_cancel_rate": _get_pickup_prior(pickup_location, tf["time_band"]),
+                "drop_cancel_rate": _get_drop_prior(drop_location, tf["time_band"]),
+                "pickup_drop_pair_freq": _get_pair_freq(pickup_location, drop_location),
                 "time_band": tf["time_band"],
                 "Pickup Location": pickup_location,
                 "Drop Location": drop_location,
@@ -487,7 +502,7 @@ if st.session_state.ui_stage == "predicted":
     st.markdown("".join(chips), unsafe_allow_html=True)
 
     # Reasons
-    def reasons_from_rules(row):
+    def _reasons_from_rules(row):
         pros_success, pros_cancel = [], []
         if row.get("payment_method") == "Cash": pros_cancel.append("Cash payment")
         elif row.get("payment_method") == "Card": pros_success.append("Card payment")
@@ -514,9 +529,9 @@ if st.session_state.ui_stage == "predicted":
             return out
         return dedupe(pros_success), dedupe(pros_cancel)
 
-    def pick_reasons_for_prediction(row_df, predicted_label, top_k=3):
+    def _pick_reasons_for_prediction(row_df, predicted_label, top_k=3):
         row = row_df.iloc[0]
-        pros_success, pros_cancel = reasons_from_rules(row)
+        pros_success, pros_cancel = _reasons_from_rules(row)
         is_success = "success" in str(predicted_label).lower()
         order = ["Higher cancellations near pickup area","Higher cancellations near drop area","Lower cancellations near pickup area","Lower cancellations near drop area","Night-time booking","Weekend booking","Morning booking","Afternoon booking","Familiar pickup→drop route","Less common pickup→drop route","Cash payment","Card payment","Bike vehicle","Auto vehicle","Mini vehicle","Sedan vehicle","Weekday booking"]
         pool = pros_success if is_success else pros_cancel
@@ -526,19 +541,18 @@ if st.session_state.ui_stage == "predicted":
         else: reasons = [f"{r} **increased cancellation risk**" for r in reasons]
         return reasons
 
-    reasons = pick_reasons_for_prediction(input_df, str(pred), top_k=3)
+    reasons = _pick_reasons_for_prediction(input_df, str(pred), top_k=3)
     st.markdown("<ul class='reason-list'>" + "".join([f"<li>{r}</li>" for r in reasons]) + "</ul>", unsafe_allow_html=True)
 
     st.divider()
 
-     # Confidence toggle
+    # Confidence toggle
     st.session_state.show_confidence = st.toggle(
         "Show confidence by outcome",
         value=st.session_state.show_confidence
     )
 
     if st.session_state.show_confidence:
-        proba = st.session_state.last_proba
         if proba is None:
             st.info("Confidence details aren’t available for this model.")
         else:
@@ -562,8 +576,6 @@ if st.session_state.ui_stage == "predicted":
 
     st.divider()
 
-
-
     # Bottom action buttons (two blues via CSS column selectors)
     cols = st.columns(2)
     with cols[0]:
@@ -572,5 +584,9 @@ if st.session_state.ui_stage == "predicted":
     with cols[1]:
         if st.button("🏠 Back to start", use_container_width=True, key="back_home", type="secondary"):
             st.session_state.ui_stage = "landing"; st.rerun()
+
+    # --- Banner 2: only visible after prediction, placed under the buttons ---
+    with st.container():
+        show_banner("images/banner2.png")
 
     st.markdown('</div>', unsafe_allow_html=True)  # close white card
