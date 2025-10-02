@@ -10,7 +10,7 @@ from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 # ==============================
 # Page & theme
 # ==============================
-st.set_page_config(page_title="Ride Cancellation Predictor", layout="centered")
+st.set_page_config(page_title="Ride Cancellation Predictor — Random Forest", layout="centered")
 st.markdown(
     """
     <style>
@@ -25,34 +25,50 @@ st.markdown(
 )
 
 # ==============================
-# Model loader
+# Model loader (handles Pipeline OR bundled dict)
 # ==============================
+MODEL_PATH = "random_forest_smote_model.pkl"  # <— change your artifact name here
+
 @st.cache_resource
-def load_model():
-    return joblib.load("decision_tree_balanced.pkl")  # trained Pipeline(preprocessor + classifier)
+def load_bundle(path: str):
+    obj = joblib.load(path)
+    # Two supported formats:
+    # 1) Pipeline(preprocessor, classifier)
+    # 2) {"preprocessor": pre, "model": clf}
+    if hasattr(obj, "predict"):
+        # Pipeline
+        pre = getattr(obj, "named_steps", {}).get("preprocessor", None)
+        clf = getattr(obj, "named_steps", {}).get("classifier", None)
+        return {"bundle_type": "pipeline", "pipeline": obj, "pre": pre, "clf": clf}
+    elif isinstance(obj, dict) and "model" in obj:
+        return {"bundle_type": "dict", "pipeline": None, "pre": obj.get("preprocessor"), "clf": obj["model"]}
+    else:
+        raise ValueError("Unsupported model bundle format. Expect a sklearn Pipeline or {'preprocessor','model'} dict.")
 
-model = load_model()
+bundle = load_bundle(MODEL_PATH)
+pre = bundle["pre"]
+clf = bundle["clf"]
 
-# Optional: load frozen priors/frequencies if you exported them from training
-pickup_priors_path = Path("pickup_priors.csv")    # columns: Pickup Location,pickup_cancel_rate
-drop_priors_path   = Path("drop_priors.csv")      # columns: Drop Location,drop_cancel_rate
-pair_freqs_path    = Path("pair_freqs.csv")       # columns: Pickup Location,Drop Location,pickup_drop_pair_freq
+def get_classes():
+    if bundle["bundle_type"] == "pipeline":
+        return bundle["pipeline"].classes_
+    return clf.classes_
 
-pickup_priors = {}
-drop_priors   = {}
-pair_freqs    = {}
+def predict_df(df: pd.DataFrame):
+    if bundle["bundle_type"] == "pipeline":
+        return bundle["pipeline"].predict(df)
+    # dict bundle: transform then predict
+    Xp = pre.transform(df) if pre is not None else df
+    return clf.predict(Xp)
 
-if pickup_priors_path.exists():
-    dfp = pd.read_csv(pickup_priors_path)
-    pickup_priors = dict(zip(dfp["Pickup Location"], dfp["pickup_cancel_rate"]))
+def predict_proba_df(df: pd.DataFrame):
+    if bundle["bundle_type"] == "pipeline":
+        if hasattr(bundle["pipeline"], "predict_proba"):
+            return bundle["pipeline"].predict_proba(df)
+        return None
+    Xp = pre.transform(df) if pre is not None else df
+    return clf.predict_proba(Xp) if hasattr(clf, "predict_proba") else None
 
-if drop_priors_path.exists():
-    dfd = pd.read_csv(drop_priors_path)
-    drop_priors = dict(zip(dfd["Drop Location"], dfd["drop_cancel_rate"]))
-
-if pair_freqs_path.exists():
-    dff = pd.read_csv(pair_freqs_path)
-    pair_freqs = {(r["Pickup Location"], r["Drop Location"]): r["pickup_drop_pair_freq"] for _, r in dff.iterrows()}
 
 # ==============================
 # Helpers
@@ -64,7 +80,7 @@ DAY_NAMES = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sund
 
 def derive_time_features(ts: dt.datetime):
     hour = ts.hour
-    dow = ts.weekday()  # Monday=0
+    dow = ts.weekday()
     weekend = 1 if dow >= 5 else 0
     if 5 <= hour <= 11: band = "Morning"
     elif 12 <= hour <= 16: band = "Afternoon"
@@ -75,17 +91,17 @@ def derive_time_features(ts: dt.datetime):
 def get_pair_freq(pickup, drop):
     if (pickup, drop) in pair_freqs:
         return float(pair_freqs[(pickup, drop)])
-    return 50.0 if pickup == drop else 10.0  # fallback heuristic
+    return 50.0 if pickup == drop else 10.0
 
 def get_pickup_prior(pickup, time_band):
     if pickup in pickup_priors:
         return float(pickup_priors[pickup])
-    return 0.25 if time_band == "Night" else 0.10  # fallback heuristic
+    return 0.25 if time_band == "Night" else 0.10
 
 def get_drop_prior(drop, time_band):
     if drop in drop_priors:
         return float(drop_priors[drop])
-    return 0.20 if time_band == "Night" else 0.08  # fallback heuristic
+    return 0.20 if time_band == "Night" else 0.08
 
 def build_input_df(booking_dt, pickup_location, drop_location, vehicle_type, payment_method):
     tf = derive_time_features(booking_dt)
@@ -108,7 +124,7 @@ def build_input_df(booking_dt, pickup_location, drop_location, vehicle_type, pay
 # Session State
 # ==============================
 if "ui_stage" not in st.session_state:
-    st.session_state.ui_stage = "landing"  # landing -> inputs -> predicted
+    st.session_state.ui_stage = "landing"
 if "last_input_df" not in st.session_state:
     st.session_state.last_input_df = None
 if "last_time_feats" not in st.session_state:
@@ -122,7 +138,7 @@ if "last_proba" not in st.session_state:
 # Header
 # ==============================
 st.markdown('<div class="big-title">🚖 Ride Cancellation Prediction</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle">Simple. Clear. Explainable.</div>', unsafe_allow_html=True)
+st.markdown('<div class="subtitle">Random Forest • Simple. Clear. Explainable.</div>', unsafe_allow_html=True)
 
 # ==============================
 # Landing: single CTA
@@ -175,9 +191,10 @@ if st.session_state.ui_stage == "inputs":
                 payment_method=payment_method,
             )
             # Predict
-            pred = model.predict(input_df)[0]
+            pred = predict_df(input_df)[0]
+            proba = None
             try:
-                proba = model.predict_proba(input_df)[0]
+                proba = predict_proba_df(input_df)[0]
             except Exception:
                 proba = None
 
@@ -197,6 +214,7 @@ if st.session_state.ui_stage == "predicted":
     time_feats = st.session_state.last_time_feats
     pred = st.session_state.last_pred
     proba = st.session_state.last_proba
+    classes = get_classes()
 
     # --- Prediction banner
     st.markdown("### 🔮 Prediction")
@@ -208,7 +226,7 @@ if st.session_state.ui_stage == "predicted":
     else:
         st.warning(f"⚠️ Predicted Booking Status: **{pred}**")
 
-    # --- Short "Why this?" summary (lightweight, no heavy libs)
+    # --- Short "Why this?" summary
     with st.container():
         st.markdown("#### 🧠 Why this prediction?")
         chips = [
@@ -235,37 +253,47 @@ if st.session_state.ui_stage == "predicted":
         "🔀 What-if analysis",
     ])
 
-    # --- Tab 1: Class probability (on click)
+    # --- Tab 1: Class probability
     with tab1:
         st.markdown("**Why this class, not others?** See the probability for each class.")
         if st.button("Show class probabilities"):
             if proba is None:
                 st.info("Model does not expose probabilities.")
             else:
-                prob_df = pd.DataFrame({"Class": model.classes_, "Probability": proba})
+                prob_df = pd.DataFrame({"Class": classes, "Probability": proba})
                 st.bar_chart(prob_df.set_index("Class"))
-                top = model.classes_[int(np.argmax(proba))]
-                st.caption(f"Top class: **{top}** with {100*float(np.max(proba)):.1f}% confidence.")
+                top_idx = int(np.argmax(proba))
+                st.caption(f"Top class: **{classes[top_idx]}** with {100*float(np.max(proba)):.1f}% confidence.")
 
-    # --- Tab 2: Explain this prediction (SHAP if available)
+    # --- Tab 2: Explain this prediction (Tree SHAP for RF if available)
     with tab2:
         st.markdown("**Which features pushed this prediction?**")
-        clicked = st.button("Explain with SHAP (if available)")
-        if clicked:
+        if st.button("Explain with SHAP (if available)"):
             try:
                 import shap
-                pre = model.named_steps["preprocessor"]
-                clf = model.named_steps["classifier"]
-                X_trans = pre.transform(input_df)
-                explainer = shap.TreeExplainer(clf)
+                # Get preprocessor + classifier, even for dict bundle
+                pre_local = pre
+                clf_local = clf
+                # Transform and explain
+                X_trans = pre_local.transform(input_df) if pre_local is not None else input_df
+                explainer = shap.TreeExplainer(clf_local)
                 shap_values = explainer.shap_values(X_trans)
 
-                # Convert to a simple bar of top |SHAP| features for the predicted class
-                cls_index = list(model.classes_).index(pred)
-                vals = np.abs(shap_values[cls_index][0])
-                names = pre.get_feature_names_out()
+                # If multi-class RF: shap_values is list per class
+                if isinstance(shap_values, list):
+                    cls_index = list(classes).index(pred)
+                    vals = np.abs(shap_values[cls_index][0])
+                else:
+                    vals = np.abs(shap_values[0])  # fallback
+
+                # Try to get feature names (from preprocessor when present)
+                try:
+                    names = pre_local.get_feature_names_out()
+                except Exception:
+                    names = [f"f{i}" for i in range(len(vals))]
+
                 order = np.argsort(vals)[::-1][:15]
-                top_names = names[order]
+                top_names = np.array(names)[order]
                 top_vals = vals[order]
 
                 fig, ax = plt.subplots()
@@ -280,7 +308,7 @@ if st.session_state.ui_stage == "predicted":
             except Exception as e:
                 st.info(f"SHAP-based explanation not available: {e}")
 
-    # --- Tab 3: Confusion matrix (only if you provide validation files)
+    # --- Tab 3: Confusion matrix (load sample CSVs)
     with tab3:
         st.markdown("**How reliable is the model overall?**")
         st.write("Provide small validation files to render this:")
@@ -290,40 +318,35 @@ if st.session_state.ui_stage == "predicted":
             if x_path.exists() and y_path.exists():
                 Xv = pd.read_csv(x_path)
                 yv = pd.read_csv(y_path).iloc[:, 0]
-                ypred = model.predict(Xv)
-                cm = confusion_matrix(yv, ypred, labels=model.classes_)
+                ypred = predict_df(Xv)
+                cm = confusion_matrix(yv, ypred, labels=classes)
                 fig, ax = plt.subplots()
-                ConfusionMatrixDisplay(cm, display_labels=model.classes_).plot(ax=ax, cmap="Blues", colorbar=False)
+                ConfusionMatrixDisplay(cm, display_labels=classes).plot(ax=ax, cmap="Blues", colorbar=False)
                 ax.set_title("Confusion Matrix (sample)")
                 st.pyplot(fig)
             else:
                 st.info("Upload val_X_sample.csv and val_y_sample.csv to show this.")
 
-    # --- Tab 4: Global feature importance (tree-based)
+    # --- Tab 4: Global feature importance (RF exposes .feature_importances_)
     with tab4:
         st.markdown("**What matters most overall?**")
         if st.button("Show global feature importance"):
             try:
-                pre = model.named_steps["preprocessor"]
-                clf = model.named_steps["classifier"]
-                if hasattr(clf, "feature_importances_"):
-                    names = pre.get_feature_names_out()
-                    importances = clf.feature_importances_
-                    order = np.argsort(importances)[::-1][:20]
-                    fig, ax = plt.subplots()
-                    ax.barh(range(len(order)), importances[order])
-                    ax.set_yticks(range(len(order)))
-                    ax.set_yticklabels(names[order])
-                    ax.invert_yaxis()
-                    ax.set_title("Top global feature importances")
-                    ax.set_xlabel("Importance")
-                    st.pyplot(fig)
-                else:
-                    st.info("This classifier does not expose feature_importances_.")
+                names = pre.get_feature_names_out() if pre is not None else [f"f{i}" for i in range(len(clf.feature_importances_))]
+                importances = clf.feature_importances_
+                order = np.argsort(importances)[::-1][:20]
+                fig, ax = plt.subplots()
+                ax.barh(range(len(order)), importances[order])
+                ax.set_yticks(range(len(order)))
+                ax.set_yticklabels(np.array(names)[order])
+                ax.invert_yaxis()
+                ax.set_title("Top global feature importances (Random Forest)")
+                ax.set_xlabel("Importance")
+                st.pyplot(fig)
             except Exception as e:
                 st.info(f"Could not compute importances: {e}")
 
-    # --- Tab 5: What-if analysis (simple per-feature sweep)
+    # --- Tab 5: What-if analysis
     with tab5:
         st.markdown("**What if we change one feature?**")
         st.write("Pick a numeric feature and see how class probabilities move when we vary it around the current value.")
@@ -333,13 +356,11 @@ if st.session_state.ui_stage == "predicted":
         if st.button("Run what-if"):
             base = input_df.iloc[0].to_dict()
             center = float(base[feat])
-            # build sweep
             if feat == "hour_of_day":
                 grid = list(range(int(max(0, center - span)), int(min(23, center + span)) + 1))
             else:
-                # numeric continuous sweep (20 points)
                 lo = max(0.0, center - span * 0.05)
-                hi = min(1.0, center + span * 0.05) if "rate" in feat else max(center + span, center + span)  # simple bound
+                hi = min(1.0, center + span * 0.05) if "rate" in feat else center + span
                 grid = np.linspace(lo, hi, 20)
 
             rows = []
@@ -347,23 +368,22 @@ if st.session_state.ui_stage == "predicted":
                 row = base.copy()
                 row[feat] = float(v)
                 df_try = pd.DataFrame([row])
-                try:
-                    probs = model.predict_proba(df_try)[0]
+                probs_arr = predict_proba_df(df_try)
+                if probs_arr is not None:
+                    probs = probs_arr[0]
                     rows.append([v, *probs])
-                except Exception:
-                    # fallback to class only
-                    pred_try = model.predict(df_try)[0]
-                    probs_vec = [np.nan]*len(model.classes_)
-                    idx = list(model.classes_).index(pred_try)
+                else:
+                    pred_try = predict_df(df_try)[0]
+                    probs_vec = [np.nan]*len(classes)
+                    idx = list(classes).index(pred_try)
                     probs_vec[idx] = 1.0
                     rows.append([v, *probs_vec])
 
-            plot_df = pd.DataFrame(rows, columns=[feat, *model.classes_]).set_index(feat)
+            plot_df = pd.DataFrame(rows, columns=[feat, *classes]).set_index(feat)
             st.line_chart(plot_df)
             st.caption("Trend lines show how class probabilities respond to the chosen feature (approximate, ceteris paribus).")
 
     st.divider()
-    # Back / New prediction CTA
     cols = st.columns(2)
     if cols[0].button("← New prediction", use_container_width=True):
         st.session_state.ui_stage = "inputs"
