@@ -22,26 +22,24 @@ WHITE       = "#FFFFFF"
 st.markdown(
     f"""
     <style>
-    /* Font (fallbacks if Google fails) */
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@500;700&display=swap');
 
     :root {{
-      --warm-yellow: {WARM_YELLOW};
-      --brown: {BROWN};
-      --dark-navy: {DARK_NAVY};
-      --deep-blue: {DEEP_BLUE};
-      --bold-blue: {BOLD_BLUE};
-      --light-blue: {LIGHT_BLUE};
-      --white: {WHITE};
+      --cream: #f7f5ef;        /* offwhite */
+      --orange: #e45528;       /* CTA orange */
+      --dark-navy: #081A2D;    /* strong navy */
+      --teal: #3ca6a6;         /* teal accent */
+      --aqua: #549ABE;         /* light aqua blue */
+      --white: #ffffff;
     }}
 
     /* App background */
     .stApp {{
-      background: var(--warm-yellow);
+      background: var(--cream);
       background-attachment: fixed;
     }}
 
-    /* Global text color tuning for contrast on yellow bg */
+    /* General text */
     .stApp, .stApp p, .stApp label, .stApp li, .stApp span {{
       color: #0d1b2a;
       font-weight: 500;
@@ -53,46 +51,34 @@ st.markdown(
       font-size: 2.2rem;
       font-weight: 700;
       text-align: center;
-      color: var(--bold-blue);
-      letter-spacing: .3px;
+      color: var(--teal);
       margin: .25rem 0 .5rem 0;
     }}
 
     .subtitle {{
-      color: #1f3147cc;
+      color: #243b53;
       text-align: center;
       margin-bottom: 1.25rem;
     }}
 
-    /* Card/Section shells */
+    /* Section shell */
     .section {{
       border: 0;
       border-radius: 16px;
-      padding: 18px 18px 14px 18px;
-      background: var(--dark-navy);   /* form wrapper "another color" */
+      padding: 18px;
+      background: var(--dark-navy);
       box-shadow: 0 6px 20px rgba(0,0,0,.15);
     }}
 
-    /* Input panel with light-blue background in the center */
+    /* Input panel with offwhite background */
     .input-panel {{
       border-radius: 14px;
       padding: 14px;
-      background: var(--light-blue); /* your light-blue */
+      background: var(--cream); 
       margin-top: 6px;
     }}
 
-    /* Center the whole booking-details block */
-    .centered-container {{
-      max-width: 820px;
-      margin: 0 auto;
-    }}
-
-    /* Make Streamlit widget labels readable on dark form bg */
-    .section :is(label, .stMarkdown p, .stDateInput, .stTimeInput) * {{
-      color: var(--white) !important;
-    }}
-
-    /* Make inputs white inside */
+    /* Input fields white inside */
     .input-panel .stSelectbox div[data-baseweb="select"] > div,
     .input-panel .stTextInput input,
     .input-panel .stDateInput input,
@@ -100,58 +86,54 @@ st.markdown(
       background: var(--white) !important;
       color: #0d1b2a !important;
       border-radius: 10px !important;
-      border: 1px solid #e7eef6 !important;
+      border: 1px solid #dcdcdc !important;
     }}
 
-    /* Chips under "Why this prediction?" */
+    /* Pills for reasons */
     .pill {{
       display:inline-block; padding:.25rem .6rem; border-radius:999px;
       background:#f5f8fb; margin:.25rem .35rem .35rem 0; font-size:.85rem; color:#243b53;
       border: 1px solid #e6eef7;
     }}
-    ul.reason-list {{ margin:.5rem 0 0 1.2rem; }}
-    ul.reason-list li {{ margin:.2rem 0; }}
 
-    /* Buttons — scoped colors by section */
-    /* 1) Landing CTA */
+    /* Buttons */
+    /* Landing CTA */
     #landing .stButton > button {{
-      background: var(--deep-blue);
+      background: var(--orange);
       color: var(--white);
       border-radius: 12px;
       border: none;
     }}
 
-    /* 2) Predict button in inputs */
+    /* Predict button */
     #inputs-section .stForm .stButton > button {{
-      background: var(--deep-blue); /* blue primary */
+      background: var(--orange);
       color: var(--white);
       border-radius: 12px;
       border: none;
     }}
 
-    /* 3) "Show confidence by outcome" button uses brown */
+    /* Show confidence button */
     #confidence-block .stButton > button {{
-      background: var(--brown);
+      background: var(--teal);
       color: var(--white);
       border-radius: 10px;
       border: none;
     }}
 
-    /* 4) Action buttons at bottom: New Prediction (bold-blue), Back to Start (deep-blue) */
+    /* New Prediction & Back buttons */
     #predicted-actions .stButton:nth-of-type(1) > button {{
-      background: var(--bold-blue);
+      background: var(--aqua);
       color: var(--white);
       border-radius: 12px;
       border: none;
     }}
     #predicted-actions .stButton:nth-of-type(2) > button {{
-      background: var(--deep-blue);
+      background: var(--dark-navy);
       color: var(--white);
       border-radius: 12px;
       border: none;
     }}
-
-    /* Streamlit default success/warning/error colors kept */
     </style>
     """,
     unsafe_allow_html=True
