@@ -357,10 +357,12 @@ st.markdown('<p class="subtitle">Predict booking status and see why the model th
 # ==============================
 # Landing: single CTA
 # ==============================
-st.markdown('<div class="landing-scope section centered-container">', unsafe_allow_html=True)
-st.write("Click below to check your booking’s predicted status.")
-st.button("🔎 Check your prediction", use_container_width=True, key="start_btn")  # state change code as you already have
-st.markdown('</div>', unsafe_allow_html=True)
+if st.session_state.ui_stage == "landing":
+    st.markdown('<div id="landing" class="section centered-container">', unsafe_allow_html=True)
+    st.write("Click below to check your booking’s predicted status.")
+    if st.button("🔎 Check your prediction", use_container_width=True):
+        st.session_state.ui_stage = "inputs"
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # ==============================
 # Inputs form
