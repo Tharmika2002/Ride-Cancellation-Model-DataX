@@ -341,11 +341,11 @@ if st.session_state.ui_stage == "inputs":
 # Predicted view
 # ==============================
 if st.session_state.ui_stage == "predicted":
-    input_df = st.session_state.last_input_df
+    input_df  = st.session_state.last_input_df
     time_feats = st.session_state.last_time_feats
-    pred = st.session_state.last_pred
-    proba = st.session_state.last_proba
-    classes = get_classes()
+    pred      = st.session_state.last_pred
+    proba     = st.session_state.last_proba
+    classes   = get_classes()
 
     st.markdown("### 🔮 Prediction")
     pred_lower = str(pred).lower()
@@ -356,63 +356,43 @@ if st.session_state.ui_stage == "predicted":
     else:
         st.warning(f"⚠️ Predicted Booking Status: **{pred}**")
 
+    # --- Why this prediction?
+    with st.container():
+        st.markdown("#### 🧠 Why this prediction?")
+        chips = [
+            f'<span class="pill">Hour: {time_feats["hour_of_day"]}</span>',
+            f'<span class="pill">Day: {time_feats["day_name"]}</span>',
+            f'<span class="pill">Band: {time_feats["time_band"]}</span>',
+            f'<span class="pill">Pickup prior: {input_df["pickup_cancel_rate"].iloc[0]:.2f}</span>',
+            f'<span class="pill">Drop prior: {input_df["drop_cancel_rate"].iloc[0]:.2f}</span>',
+            f'<span class="pill">Route freq: {int(input_df["pickup_drop_pair_freq"].iloc[0])}</span>',
+        ]
+        st.markdown("".join(chips), unsafe_allow_html=True)
 
-
-
-# === Custom CSS (define pill style once) ===
-st.markdown("""
-<style>
-.pill {
-    display: inline-block;
-    background-color: #1f77b4; /* Blue */
-    color: white;
-    padding: 6px 10px;
-    margin: 4px;
-    border-radius: 8px;
-    font-size: 14px;
-}
-</style>
-""", unsafe_allow_html=True)
-
-
-# --- Why this prediction? (chips + friendly bullet list)
-with st.container():
-    st.markdown("#### 🧠 Why this prediction?")
-    chips = [
-        f'<span class="pill">Hour: {time_feats["hour_of_day"]}</span>',
-        f'<span class="pill">Day: {time_feats["day_name"]}</span>',
-        f'<span class="pill">Band: {time_feats["time_band"]}</span>',
-        f'<span class="pill">Pickup prior: {input_df["pickup_cancel_rate"].iloc[0]:.2f}</span>',
-        f'<span class="pill">Drop prior: {input_df["drop_cancel_rate"].iloc[0]:.2f}</span>',
-        f'<span class="pill">Route freq: {int(input_df["pickup_drop_pair_freq"].iloc[0])}</span>',
-    ]
-    st.markdown("".join(chips), unsafe_allow_html=True)
-
-
-    reasons = pick_reasons_for_prediction(input_df, str(pred), top_k=3)
-    st.markdown("<ul class='reason-list'>" + "".join([f"<li>{r}</li>" for r in reasons]) + "</ul>", unsafe_allow_html=True)
+        reasons = pick_reasons_for_prediction(input_df, str(pred), top_k=3)
+        st.markdown("<ul class='reason-list'>" + "".join([f"<li>{r}</li>" for r in reasons]) + "</ul>", unsafe_allow_html=True)
 
     st.divider()
 
-# === Only visualization we keep: Confidence (on demand) ===
-st.markdown("### 🤝 How confident is this prediction?")
-if st.button("Show confidence by outcome"):
-    if proba is None:
-        st.info("Confidence details aren’t available for this model.")
+    # --- Confidence chart toggle ---
+    st.markdown("### 🤝 How confident is this prediction?")
+    if st.button("Show confidence by outcome"):
+        if proba is None:
+            st.info("Confidence details aren’t available for this model.")
+        else:
+            prob_df = pd.DataFrame({"Outcome": classes, "Confidence": proba})
+            st.bar_chart(prob_df.set_index("Outcome"))
+            top_idx = int(np.argmax(proba))
+            st.caption(f"The model is most confident about **{classes[top_idx]}** "
+                       f"({100*float(np.max(proba)):.1f}%).")
     else:
-        prob_df = pd.DataFrame({"Outcome": classes, "Confidence": proba})
-        st.bar_chart(prob_df.set_index("Outcome"))
-        top_idx = int(np.argmax(proba))
-        st.caption(f"The model is most confident about **{classes[top_idx]}** "
-                   f"({100*float(np.max(proba)):.1f}%).")
-else:
-    st.caption("Click to see the model’s confidence for each possible outcome.")
+        st.caption("Click to see the model’s confidence for each possible outcome.")
 
-st.divider()
-cols = st.columns(2)
-if cols[0].button("← New prediction", use_container_width=True):
-    st.session_state.ui_stage = "inputs"
-    st.rerun()
-if cols[1].button("🏠 Back to start", use_container_width=True):
-    st.session_state.ui_stage = "landing"
-    st.rerun()
+    st.divider()
+    cols = st.columns(2)
+    if cols[0].button("← New prediction", use_container_width=True):
+        st.session_state.ui_stage = "inputs"
+        st.rerun()
+    if cols[1].button("🏠 Back to start", use_container_width=True):
+        st.session_state.ui_stage = "landing"
+        st.rerun()
