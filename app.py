@@ -4,8 +4,6 @@ import numpy as np
 import joblib
 import datetime as dt
 from pathlib import Path
-import matplotlib.pyplot as plt
-from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 
 # ==============================
 # Page & theme
@@ -25,25 +23,21 @@ st.markdown(
 )
 
 # ==============================
-# Model loader (handles Pipeline OR bundled dict)
+# Model loader (Pipeline OR dict bundle)
 # ==============================
-MODEL_PATH = "random_forest_smote_model.pkl"  # <— change your artifact name here
+MODEL_PATH = "random_forest_smote_model.pkl"
 
 @st.cache_resource
 def load_bundle(path: str):
     obj = joblib.load(path)
-    # Two supported formats:
-    # 1) Pipeline(preprocessor, classifier)
-    # 2) {"preprocessor": pre, "model": clf}
-    if hasattr(obj, "predict"):
-        # Pipeline
+    if hasattr(obj, "predict"):  # sklearn Pipeline
         pre = getattr(obj, "named_steps", {}).get("preprocessor", None)
         clf = getattr(obj, "named_steps", {}).get("classifier", None)
         return {"bundle_type": "pipeline", "pipeline": obj, "pre": pre, "clf": clf}
-    elif isinstance(obj, dict) and "model" in obj:
-        return {"bundle_type": "dict", "pipeline": None, "pre": obj.get("preprocessor"), "clf": obj["model"]}
+    elif isinstance(obj, dict) and "model" in obj:  # dict bundle
+        return {"bundle_type": "dict", "pipeline": None, "pre": obj.get("preprocessor"), "clf": obj["model"], "feature_order": obj.get("feature_order")}
     else:
-        raise ValueError("Unsupported model bundle format. Expect a sklearn Pipeline or {'preprocessor','model'} dict.")
+        raise ValueError("Unsupported model bundle format.")
 
 bundle = load_bundle(MODEL_PATH)
 pre = bundle["pre"]
@@ -57,32 +51,24 @@ def get_classes():
 def predict_df(df: pd.DataFrame):
     if bundle["bundle_type"] == "pipeline":
         return bundle["pipeline"].predict(df)
-    # dict bundle: transform then predict
     Xp = pre.transform(df) if pre is not None else df
     return clf.predict(Xp)
 
 def predict_proba_df(df: pd.DataFrame):
     if bundle["bundle_type"] == "pipeline":
-        if hasattr(bundle["pipeline"], "predict_proba"):
-            return bundle["pipeline"].predict_proba(df)
-        return None
+        return bundle["pipeline"].predict_proba(df) if hasattr(bundle["pipeline"], "predict_proba") else None
     Xp = pre.transform(df) if pre is not None else df
     return clf.predict_proba(Xp) if hasattr(clf, "predict_proba") else None
 
-
 # ==============================
-# Priors & frequencies (CSV-if-available, otherwise fallback)
+# Priors & frequencies (CSV-if-available, else fallback)
 # ==============================
 pickup_priors_path = Path("pickup_priors.csv")
 drop_priors_path   = Path("drop_priors.csv")
 pair_freqs_path    = Path("pair_freqs.csv")
 
-# Initialize dicts so helpers below always have them
-pickup_priors: dict = {}
-drop_priors: dict   = {}
-pair_freqs: dict    = {}
+pickup_priors, drop_priors, pair_freqs = {}, {}, {}
 
-# Try loading CSVs (quietly ignore if missing)
 try:
     if pickup_priors_path.exists():
         dfp = pd.read_csv(pickup_priors_path)
@@ -104,10 +90,7 @@ try:
         dff = pd.read_csv(pair_freqs_path)
         req = {"Pickup Location", "Drop Location", "pickup_drop_pair_freq"}
         if req.issubset(dff.columns):
-            pair_freqs = {
-                (r["Pickup Location"], r["Drop Location"]): r["pickup_drop_pair_freq"]
-                for _, r in dff.iterrows()
-            }
+            pair_freqs = { (r["Pickup Location"], r["Drop Location"]): r["pickup_drop_pair_freq"] for _, r in dff.iterrows() }
 except Exception:
     pair_freqs = {}
 
@@ -130,28 +113,21 @@ def derive_time_features(ts: dt.datetime):
     return {"hour_of_day": hour, "day_of_week": dow, "is_weekend": weekend, "time_band": band, "day_name": DAY_NAMES[dow]}
 
 def get_pair_freq(pickup, drop):
-    # Use CSV value if available; otherwise fallback heuristic
     if (pickup, drop) in pair_freqs:
-        try:
-            return float(pair_freqs[(pickup, drop)])
-        except Exception:
-            pass
+        try: return float(pair_freqs[(pickup, drop)])
+        except Exception: pass
     return 50.0 if pickup == drop else 10.0
 
 def get_pickup_prior(pickup, time_band):
     if pickup in pickup_priors:
-        try:
-            return float(pickup_priors[pickup])
-        except Exception:
-            pass
+        try: return float(pickup_priors[pickup])
+        except Exception: pass
     return 0.25 if time_band == "Night" else 0.10
 
 def get_drop_prior(drop, time_band):
     if drop in drop_priors:
-        try:
-            return float(drop_priors[drop])
-        except Exception:
-            pass
+        try: return float(drop_priors[drop])
+        except Exception: pass
     return 0.20 if time_band == "Night" else 0.08
 
 def build_input_df(booking_dt, pickup_location, drop_location, vehicle_type, payment_method):
@@ -170,6 +146,52 @@ def build_input_df(booking_dt, pickup_location, drop_location, vehicle_type, pay
         "payment_method": payment_method,
     }
     return pd.DataFrame([row]), tf
+
+# Readable explanation using RF global importances (no SHAP)
+def _prettify_feat_name(name: str) -> str:
+    nice = name.replace("num__", "").replace("cat__encoder__", "")
+    nice = (nice.replace("pickup_cancel_rate", "pickup-area cancel rate")
+                 .replace("drop_cancel_rate", "drop-area cancel rate")
+                 .replace("pickup_drop_pair_freq", "route frequency")
+                 .replace("hour_of_day", "hour of day")
+                 .replace("day_of_week", "day of week")
+                 .replace("is_weekend", "weekend"))
+    return nice
+
+def explain_with_importances(input_df: pd.DataFrame, pre, clf, top_k: int = 3) -> str:
+    try:
+        if pre is None or not hasattr(clf, "feature_importances_"):
+            return "Model-level feature importance is unavailable for this model."
+        Xtr = pre.transform(input_df)
+        x = np.asarray(Xtr.toarray()[0]) if hasattr(Xtr, "toarray") else np.asarray(Xtr[0])
+        importances = np.asarray(clf.feature_importances_)
+        if importances.shape[0] != x.shape[0]:
+            return "Could not align features for explanation."
+        contrib = x * importances
+        order = np.argsort(np.abs(contrib))[::-1][:top_k]
+        try:
+            names = pre.get_feature_names_out()
+        except Exception:
+            names = np.array([f"feature_{i}" for i in range(len(importances))])
+        pieces = []
+        for idx in order:
+            fname = _prettify_feat_name(str(names[idx]))
+            val = x[idx]
+            sign = "increased" if contrib[idx] > 0 else "decreased"
+            if "__" in fname and "Area-" in fname:
+                if val > 0.5:
+                    pieces.append(f"{fname} was active, which {sign} the likelihood")
+            else:
+                pieces.append(f"{fname} (value ~ {val:.2f}) {sign} the likelihood")
+        if not pieces:
+            return "The model used multiple weak signals; no single driver dominated."
+        if len(pieces) == 1:
+            return "This prediction was mainly driven by " + pieces[0] + "."
+        if len(pieces) == 2:
+            return "This prediction was mainly driven by " + pieces[0] + " and " + pieces[1] + "."
+        return "This prediction was mainly driven by " + ", ".join(pieces[:-1]) + ", and " + pieces[-1] + "."
+    except Exception:
+        return "Could not generate a feature-importance explanation for this prediction."
 
 # ==============================
 # Session State
@@ -216,20 +238,11 @@ if st.session_state.ui_stage == "inputs":
             drop_location = st.selectbox("Drop Location", AREAS, index=1)
 
         st.markdown("#### 🗓️ Date & Time")
-        dcol, tcol, pcol = st.columns([1,1,1])
+        dcol, tcol = st.columns([1,1])
         with dcol:
             booking_date = st.date_input("Date", value=dt.date.today())
         with tcol:
             booking_time = st.time_input("Time", value=dt.datetime.now().time())
-        with pcol:
-            preset = st.selectbox("Quick set", ["None","Now","Rush hour (08:30)","Late night (23:30)"], index=0)
-            if preset == "Now":
-                now = dt.datetime.now()
-                booking_date, booking_time = now.date(), now.time()
-            elif preset == "Rush hour (08:30)":
-                booking_time = dt.time(8, 30)
-            elif preset == "Late night (23:30)":
-                booking_time = dt.time(23, 30)
 
         submitted = st.form_submit_button("✨ Predict ride status", use_container_width=True)
         if submitted:
@@ -241,15 +254,12 @@ if st.session_state.ui_stage == "inputs":
                 vehicle_type=vehicle_type,
                 payment_method=payment_method,
             )
-            # Predict
             pred = predict_df(input_df)[0]
-            proba = None
             try:
                 proba = predict_proba_df(input_df)[0]
             except Exception:
                 proba = None
 
-            # Store in session
             st.session_state.last_input_df = input_df
             st.session_state.last_time_feats = time_feats
             st.session_state.last_pred = pred
@@ -258,7 +268,7 @@ if st.session_state.ui_stage == "inputs":
             st.experimental_rerun()
 
 # ==============================
-# Predicted view: output then explain
+# Predicted view
 # ==============================
 if st.session_state.ui_stage == "predicted":
     input_df = st.session_state.last_input_df
@@ -267,7 +277,6 @@ if st.session_state.ui_stage == "predicted":
     proba = st.session_state.last_proba
     classes = get_classes()
 
-    # --- Prediction banner
     st.markdown("### 🔮 Prediction")
     pred_lower = str(pred).lower()
     if "success" in pred_lower:
@@ -277,7 +286,7 @@ if st.session_state.ui_stage == "predicted":
     else:
         st.warning(f"⚠️ Predicted Booking Status: **{pred}**")
 
-    # --- Short "Why this?" summary
+    # --- Why this prediction? (chips + short readable text)
     with st.container():
         st.markdown("#### 🧠 Why this prediction?")
         chips = [
@@ -289,148 +298,20 @@ if st.session_state.ui_stage == "predicted":
             f'<span class="pill">Route freq: {int(input_df["pickup_drop_pair_freq"].iloc[0])}</span>',
         ]
         st.markdown(" ".join(chips), unsafe_allow_html=True)
-        st.markdown('<div class="muted">Detailed visuals are available in the tabs below—generated only if you click their buttons.</div>', unsafe_allow_html=True)
+        explanation = explain_with_importances(input_df, pre, clf, top_k=3)
+        st.write(explanation)
 
     st.divider()
 
-    # ==============================
-    # Tabs for lazy-loaded visuals
-    # ==============================
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "📊 Class probability",
-        "🪄 Explain this prediction",
-        "🧩 Confusion matrix",
-        "🏁 Global feature importance",
-        "🔀 What-if analysis",
-    ])
-
-    # --- Tab 1: Class probability
-    with tab1:
-        st.markdown("**Why this class, not others?** See the probability for each class.")
-        if st.button("Show class probabilities"):
-            if proba is None:
-                st.info("Model does not expose probabilities.")
-            else:
-                prob_df = pd.DataFrame({"Class": classes, "Probability": proba})
-                st.bar_chart(prob_df.set_index("Class"))
-                top_idx = int(np.argmax(proba))
-                st.caption(f"Top class: **{classes[top_idx]}** with {100*float(np.max(proba)):.1f}% confidence.")
-
-    # --- Tab 2: Explain this prediction (Tree SHAP for RF if available)
-    with tab2:
-        st.markdown("**Which features pushed this prediction?**")
-        if st.button("Explain with SHAP (if available)"):
-            try:
-                import shap
-                pre_local = pre
-                clf_local = clf
-                X_trans = pre_local.transform(input_df) if pre_local is not None else input_df
-                explainer = shap.TreeExplainer(clf_local)
-                shap_values = explainer.shap_values(X_trans)
-
-                # If multi-class RF: shap_values is list per class
-                if isinstance(shap_values, list):
-                    cls_index = list(classes).index(pred)
-                    vals = np.abs(shap_values[cls_index][0])
-                else:
-                    vals = np.abs(shap_values[0])  # fallback
-
-                # Get feature names if possible
-                try:
-                    names = pre_local.get_feature_names_out()
-                except Exception:
-                    names = [f"f{i}" for i in range(len(vals))]
-
-                order = np.argsort(vals)[::-1][:15]
-                top_names = np.array(names)[order]
-                top_vals = vals[order]
-
-                fig, ax = plt.subplots()
-                ax.barh(range(len(top_vals)), top_vals)
-                ax.set_yticks(range(len(top_vals)))
-                ax.set_yticklabels(top_names)
-                ax.invert_yaxis()
-                ax.set_xlabel("|Contribution|")
-                ax.set_title("Top feature contributions (approx.)")
-                st.pyplot(fig)
-                st.caption("Higher bars indicate features with stronger influence toward the predicted class (approximate).")
-            except Exception as e:
-                st.info(f"SHAP-based explanation not available: {e}")
-
-    # --- Tab 3: Confusion matrix (load sample CSVs)
-    with tab3:
-        st.markdown("**How reliable is the model overall?**")
-        st.write("Provide small validation files to render this:")
-        st.code("val_X_sample.csv, val_y_sample.csv", language="text")
-        if st.button("Show confusion matrix from validation sample"):
-            x_path, y_path = Path("val_X_sample.csv"), Path("val_y_sample.csv")
-            if x_path.exists() and y_path.exists():
-                Xv = pd.read_csv(x_path)
-                yv = pd.read_csv(y_path).iloc[:, 0]
-                ypred = predict_df(Xv)
-                cm = confusion_matrix(yv, ypred, labels=classes)
-                fig, ax = plt.subplots()
-                ConfusionMatrixDisplay(cm, display_labels=classes).plot(ax=ax, cmap="Blues", colorbar=False)
-                ax.set_title("Confusion Matrix (sample)")
-                st.pyplot(fig)
-            else:
-                st.info("Upload val_X_sample.csv and val_y_sample.csv to show this.")
-
-    # --- Tab 4: Global feature importance (RF exposes .feature_importances_)
-    with tab4:
-        st.markdown("**What matters most overall?**")
-        if st.button("Show global feature importance"):
-            try:
-                names = pre.get_feature_names_out() if pre is not None else [f"f{i}" for i in range(len(clf.feature_importances_))]
-                importances = clf.feature_importances_
-                order = np.argsort(importances)[::-1][:20]
-                fig, ax = plt.subplots()
-                ax.barh(range(len(order)), importances[order])
-                ax.set_yticks(range(len(order)))
-                ax.set_yticklabels(np.array(names)[order])
-                ax.invert_yaxis()
-                ax.set_title("Top global feature importances (Random Forest)")
-                ax.set_xlabel("Importance")
-                st.pyplot(fig)
-            except Exception as e:
-                st.info(f"Could not compute importances: {e}")
-
-    # --- Tab 5: What-if analysis
-    with tab5:
-        st.markdown("**What if we change one feature?**")
-        st.write("Pick a numeric feature and see how class probabilities move when we vary it around the current value.")
-        numeric_candidates = ["hour_of_day","pickup_cancel_rate","drop_cancel_rate","pickup_drop_pair_freq"]
-        feat = st.selectbox("Feature to vary", numeric_candidates, index=0)
-        span = st.slider("± range around current value", 1, 24, 6)
-        if st.button("Run what-if"):
-            base = input_df.iloc[0].to_dict()
-            center = float(base[feat])
-            if feat == "hour_of_day":
-                grid = list(range(int(max(0, center - span)), int(min(23, center + span)) + 1))
-            else:
-                lo = max(0.0, center - span * 0.05)
-                hi = min(1.0, center + span * 0.05) if "rate" in feat else center + span
-                grid = np.linspace(lo, hi, 20)
-
-            rows = []
-            for v in grid:
-                row = base.copy()
-                row[feat] = float(v)
-                df_try = pd.DataFrame([row])
-                probs_arr = predict_proba_df(df_try)
-                if probs_arr is not None:
-                    probs = probs_arr[0]
-                    rows.append([v, *probs])
-                else:
-                    pred_try = predict_df(df_try)[0]
-                    probs_vec = [np.nan]*len(classes)
-                    idx = list(classes).index(pred_try)
-                    probs_vec[idx] = 1.0
-                    rows.append([v, *probs_vec])
-
-            plot_df = pd.DataFrame(rows, columns=[feat, *classes]).set_index(feat)
-            st.line_chart(plot_df)
-            st.caption("Trend lines show how class probabilities respond to the chosen feature (approximate, ceteris paribus).")
+    # === Only visualization we keep: Class probabilities ===
+    st.markdown("### 📊 Class probability")
+    if proba is None:
+        st.info("Model does not expose probabilities.")
+    else:
+        prob_df = pd.DataFrame({"Class": classes, "Probability": proba})
+        st.bar_chart(prob_df.set_index("Class"))
+        top_idx = int(np.argmax(proba))
+        st.caption(f"Top class: **{classes[top_idx]}** with {100*float(np.max(proba)):.1f}% confidence.")
 
     st.divider()
     cols = st.columns(2)
