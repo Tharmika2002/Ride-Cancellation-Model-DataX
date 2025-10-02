@@ -149,137 +149,120 @@ def build_input_df(booking_dt, pickup_location, drop_location, vehicle_type, pay
     }
     return pd.DataFrame([row]), tf
 
-# ---------- Human-friendly explanation (no SHAP) ----------
-def _prettify_feat_name(name: str) -> str:
-    return (name.replace("num__", "")
-                .replace("cat__encoder__", "")
-                .replace("pickup_cancel_rate", "pickup-area cancel rate")
-                .replace("drop_cancel_rate", "drop-area cancel rate")
-                .replace("pickup_drop_pair_freq", "route frequency")
-                .replace("hour_of_day", "hour of day")
-                .replace("day_of_week", "day of week")
-                .replace("is_weekend", "weekend"))
+# ---------- Human-friendly, rule-based explanation (class-consistent) ----------
+def reasons_from_rules(row: pd.Series):
+    """
+    Build two lists of reasons:
+      - pros_success: items that usually help success / reduce cancellation
+      - pros_cancel : items that usually increase cancellation risk
+    The wording is concise and human.
+    """
+    pros_success = []
+    pros_cancel  = []
 
-def _humanize_onehot(nice_name: str):
-    """
-    Turn one-hot like 'payment method_Cash' into ('Cash payment', 'factor text').
-    We keep only user-friendly categories; skip Area-* categories.
-    """
-    if "_" not in nice_name:
-        return None
-    base, val = nice_name.split("_", 1)
-    base_norm = (base.replace("payment_method", "payment method")
-                      .replace("vehicle_type", "vehicle type")
-                      .replace("time_band", "time band")
-                      .strip())
+    # Payment method
+    if row.get("payment_method") == "Cash":
+        pros_cancel.append("Cash payment")
+    elif row.get("payment_method") == "Card":
+        pros_success.append("Card payment")
 
-    if base_norm == "payment method":
-        return "Cash payment" if val == "Cash" else "Card payment"
-    if base_norm == "vehicle type":
-        return f"{val} vehicle"
-    if base_norm == "time band":
-        return f"{val.capitalize()} time"
-    return None  # skip others to avoid awkward text
+    # Time band / hour
+    band = row.get("time_band")
+    hour = row.get("hour_of_day")
+    if band in ("Night",) or (hour is not None and (hour >= 22 or hour <= 5)):
+        pros_cancel.append("Night-time booking")
+    elif band in ("Morning", "Afternoon"):
+        pros_success.append(f"{band} booking")
 
-def _direction_phrase(inc: bool, predicted_label: str):
-    """
-    Map direction to human phrases depending on predicted class.
-    """
-    is_success = "success" in predicted_label.lower()
-    if is_success:
-        return "helped **increase success**" if inc else "helped **reduce success**"
+    # Weekend vs weekday
+    if int(row.get("is_weekend", 0)) == 1:
+        pros_cancel.append("Weekend booking")
     else:
-        return "helped **increase cancellation risk**" if inc else "helped **reduce cancellation risk**"
+        pros_success.append("Weekday booking")
 
-def _humanize_numeric(base_col: str, raw_val):
+    # Historical cancellation rates
+    pk = float(row.get("pickup_cancel_rate", 0))
+    dp = float(row.get("drop_cancel_rate", 0))
+    # thresholds can be tuned; 0.15 = 15% historical cancellation rate
+    if pk >= 0.15:
+        pros_cancel.append("Higher cancellations near pickup area")
+    else:
+        pros_success.append("Lower cancellations near pickup area")
+    if dp >= 0.15:
+        pros_cancel.append("Higher cancellations near drop area")
+    else:
+        pros_success.append("Lower cancellations near drop area")
+
+    # Route familiarity (pair frequency)
+    pf = float(row.get("pickup_drop_pair_freq", 0))
+    if pf >= 30:
+        pros_success.append("Familiar pickup→drop route")
+    else:
+        pros_cancel.append("Less common pickup→drop route")
+
+    # Vehicle type (keep neutral unless you have evidence)
+    vt = row.get("vehicle_type")
+    if vt in ("Mini", "Sedan"):
+        pros_success.append(f"{vt} vehicle")
+    elif vt in ("Bike", "Auto"):
+        pros_cancel.append(f"{vt} vehicle")
+
+    # Remove duplicates while keeping order
+    def dedupe(seq):
+        seen, out = set(), []
+        for s in seq:
+            if s not in seen:
+                out.append(s); seen.add(s)
+        return out
+
+    return dedupe(pros_success), dedupe(pros_cancel)
+
+def pick_reasons_for_prediction(row_df: pd.DataFrame, predicted_label: str, top_k: int = 3):
     """
-    Human title for numeric features using ORIGINAL value (no scaled numbers).
+    Choose up to top_k reasons matching the predicted side:
+      - If prediction is a cancellation class → pick from pros_cancel
+      - If prediction is Success             → pick from pros_success
     """
-    try:
-        v = float(raw_val)
-    except Exception:
-        v = None
+    row = row_df.iloc[0]
+    pros_success, pros_cancel = reasons_from_rules(row)
 
-    if base_col == "pickup_cancel_rate":
-        return "Higher cancellations near pickup" if (v is not None and v >= 0.15) else "Lower cancellations near pickup"
-    if base_col == "drop_cancel_rate":
-        return "Higher cancellations near drop" if (v is not None and v >= 0.15) else "Lower cancellations near drop"
-    if base_col == "pickup_drop_pair_freq":
-        # Do not assert common/rare effects; keep neutral wording
-        return "This pickup→drop route pattern"
-    if base_col == "hour_of_day":
-        return f"Booking around {int(v):02d}:00" if v is not None else "Booking time"
-    if base_col == "day_of_week":
-        try:
-            return f"Booking on {DAY_NAMES[int(v) % 7]}"
-        except Exception:
-            return "Day of week"
-    if base_col == "is_weekend":
-        return "Weekend booking" if int(v) == 1 else "Weekday booking"
-    return base_col
+    is_success = "success" in predicted_label.lower()
+    pool = pros_success if is_success else pros_cancel
 
-def explain_with_importances(input_df: pd.DataFrame, pre, clf, predicted_label: str, top_k: int = 3):
-    """
-    Produces a short bullet list of human-friendly reasons.
-    Uses RF global importances as a local proxy and avoids awkward claims.
-    """
-    try:
-        if pre is None or not hasattr(clf, "feature_importances_"):
-            return ["A short explanation isn’t available for this model."]
+    # Priority order (tweakable)
+    order = [
+        "Higher cancellations near pickup area",
+        "Higher cancellations near drop area",
+        "Lower cancellations near pickup area",
+        "Lower cancellations near drop area",
+        "Night-time booking",
+        "Weekend booking",
+        "Morning booking",
+        "Afternoon booking",
+        "Familiar pickup→drop route",
+        "Less common pickup→drop route",
+        "Cash payment",
+        "Card payment",
+        "Bike vehicle",
+        "Auto vehicle",
+        "Mini vehicle",
+        "Sedan vehicle",
+        "Weekday booking",
+    ]
 
-        Xtr = pre.transform(input_df)
-        x = np.asarray(Xtr.toarray()[0]) if hasattr(Xtr, "toarray") else np.asarray(Xtr[0])
-        importances = np.asarray(clf.feature_importances_)
-        if importances.shape[0] != x.shape[0]:
-            return ["The model combined several signals for this prediction."]
+    ranked = [r for r in order if r in pool]
+    if not ranked:
+        ranked = pool
 
-        contrib = x * importances
-        order = np.argsort(np.abs(contrib))[::-1]
+    reasons = ranked[:top_k]
 
-        try:
-            names = pre.get_feature_names_out()
-        except Exception:
-            names = np.array([f"feature_{i}" for i in range(len(importances))])
+    # Attach direction that matches predicted class
+    if is_success:
+        reasons = [f"{r} **helped increase success**" for r in reasons]
+    else:
+        reasons = [f"{r} **increased cancellation risk**" for r in reasons]
 
-        reasons = []
-        for idx in order:
-            if len(reasons) >= top_k:
-                break
-
-            raw_name = str(names[idx])
-            inc = bool(contrib[idx] > 0)  # direction toward predicted class
-
-            # Numeric
-            if raw_name.startswith("num__"):
-                base_col = raw_name.split("__", 1)[1]
-                raw_val = input_df.iloc[0].get(base_col, None)
-                title = _humanize_numeric(base_col, raw_val)
-                reasons.append(f"{title} {_direction_phrase(inc, predicted_label)}")
-                continue
-
-            # Categorical (mention only the active category)
-            if x[idx] <= 0.5:
-                continue
-            nice = _prettify_feat_name(raw_name)
-            label = _humanize_onehot(nice)
-            if label is None:
-                # Skip categories like Area-* to avoid clunky text
-                continue
-            reasons.append(f"{label} {_direction_phrase(inc, predicted_label)}")
-
-        # De-duplicate
-        seen, clean = set(), []
-        for r in reasons:
-            if r not in seen:
-                clean.append(r); seen.add(r)
-
-        if not clean:
-            clean = ["The model combined several subtle signals; no single factor dominated."]
-
-        return clean
-
-    except Exception:
-        return ["The model combined several signals for this prediction."]
+    return reasons
 
 # ==============================
 # Session State
@@ -353,7 +336,7 @@ if st.session_state.ui_stage == "inputs":
             st.session_state.last_pred = pred
             st.session_state.last_proba = proba
             st.session_state.ui_stage = "predicted"
-            st.experimental_rerun()
+            st.rerun()   # ✅ updated (was st.experimental_rerun)
 
 # ==============================
 # Predicted view
@@ -387,8 +370,7 @@ if st.session_state.ui_stage == "predicted":
         ]
         st.markdown(" ".join(chips), unsafe_allow_html=True)
 
-        reasons = explain_with_importances(input_df, pre, clf, str(pred), top_k=3)
-        # Render as bullets for readability
+        reasons = pick_reasons_for_prediction(input_df, str(pred), top_k=3)
         st.markdown("<ul class='reason-list'>" + "".join([f"<li>{r}</li>" for r in reasons]) + "</ul>", unsafe_allow_html=True)
 
     st.divider()
@@ -410,7 +392,7 @@ if st.session_state.ui_stage == "predicted":
     cols = st.columns(2)
     if cols[0].button("← New prediction", use_container_width=True):
         st.session_state.ui_stage = "inputs"
-        st.experimental_rerun()
+        st.rerun()  # ✅ updated
     if cols[1].button("🏠 Back to start", use_container_width=True):
         st.session_state.ui_stage = "landing"
-        st.experimental_rerun()
+        st.rerun()  # ✅ updated
