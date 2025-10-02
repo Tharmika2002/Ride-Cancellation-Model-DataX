@@ -565,16 +565,16 @@ if st.session_state.ui_stage == "predicted":
             })
 
             # Orange bar chart with Altair
-            chart = (
-                alt.Chart(prob_df)
-                .mark_bar(color="#e45528")  # your orange
-                .encode(
-                    x=alt.X("Outcome:N", sort=list(prob_df["Outcome"])),
-                    y=alt.Y("Confidence:Q", scale=alt.Scale(domain=[0, 1])),
-                    tooltip=[alt.Tooltip("Outcome:N"), alt.Tooltip("Confidence:Q", format=".1%")]
-                )
-                .properties(height=280)
-            )
+       chart = (
+             alt.Chart(prob_df)
+             .mark_bar(color="#e45528")
+             .encode(
+               y=alt.Y("Outcome:N", sort="-x"),
+               x=alt.X("Confidence:Q", scale=alt.Scale(domain=[0,1]), axis=alt.Axis(format="%")),
+               tooltip=[alt.Tooltip("Outcome:N"), alt.Tooltip("Confidence:Q", format=".1%")]
+    )
+)
+
 
             # Add labels on top of bars
             labels = (
