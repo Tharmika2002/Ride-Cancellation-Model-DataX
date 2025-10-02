@@ -10,7 +10,7 @@ from pathlib import Path
 # ==============================
 st.set_page_config(page_title="Ride Cancellation Predictor — Random Forest", layout="centered")
 
-# ---------------- CSS (robust selectors; no wrapper dependency) ----------------
+# ---------------- CSS (targets Streamlit's own nodes; no wrappers required) ----------------
 st.markdown(
     """
     <style>
@@ -19,11 +19,11 @@ st.markdown(
     :root{
       --app-bg: #f7f5ef;        /* page background (off-white) */
       --form-shell: #15608B;    /* blue/teal shell around the form */
-      --input-panel: #f5f3ea;   /* off-white block behind inputs */
-      --field-bg: #ffffff;      /* actual input backgrounds */
-      --cta-orange: #e45528;    /* predict & landing CTA background */
+      --inner-panel: #f5f3ea;   /* off-white "panel" feel inside form */
+      --field-bg: #ffffff;      /* input backgrounds */
+      --cta-orange: #e45528;    /* predict / landing CTA background */
       --cta-text-blue: #05355D; /* text on orange buttons */
-      --teal: #3ca6a6;          /* show confidence + chips */
+      --teal: #3ca6a6;          /* pills + teal accents */
       --blue-a: #549ABE;        /* New prediction */
       --blue-b: #081A2D;        /* Back to start */
       --text: #0d1b2a;
@@ -33,30 +33,47 @@ st.markdown(
     .stApp{ background: var(--app-bg) !important; }
     .stApp, .stApp p, .stApp label, .stApp span, .stApp li{ color: var(--text) !important; }
 
-    /* Heading */
+    /* Headings */
     .big-title{
       font-family:'Poppins', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
       font-size:2.2rem; font-weight:700; text-align:center; color:#15608B; margin:.25rem 0 .6rem;
     }
     .subtitle{ color:#243b53; text-align:center; margin-bottom:1rem; }
 
-    /* Center width + shell */
-    .centered-container{ max-width: 820px; margin: 0 auto; }
-    .section{
-      background: var(--form-shell) !important; border-radius:16px; padding:18px;
-      box-shadow:0 6px 20px rgba(0,0,0,.15);
+    /* ---------- FORM APPEARANCE (blue/teal shell + off-white inner) ---------- */
+    /* The form container itself */
+    div[data-testid="stForm"]{
+      background: var(--form-shell) !important;
+      border-radius: 16px !important;
+      padding: 18px !important;
+      box-shadow: 0 6px 20px rgba(0,0,0,.15) !important;
     }
-    .section :is(h3,h4){ color:#ffffff !important; }
+    /* Form headings inside the blue shell */
+    div[data-testid="stForm"] h3, div[data-testid="stForm"] h4{ color:#ffffff !important; }
 
-    /* Input panel OFF-WHITE + inputs WHITE */
-    .input-panel{
-      background: var(--input-panel) !important;
-      border: 1px solid #e4e1d7; border-radius:14px; padding:14px; margin-top:8px;
+    /* Create a soft inner panel look by tinting the immediate content blocks */
+    div[data-testid="stForm"] > div{
+      background: var(--inner-panel) !important;
+      border: 1px solid #e4e1d7 !important;
+      border-radius: 14px !important;
+      padding: 12px !important;
+      margin-top: 8px !important;
     }
-    .input-panel :is(label, p){ color: var(--text) !important; }
-    .input-panel :is(input, textarea){ background: var(--field-bg) !important; color: var(--text) !important;
-      border:1px solid #dcdcdc !important; border-radius:10px !important; }
-    .input-panel div[data-baseweb="select"] > div{
+    /* Keep the top heading row un-tinted (first child is usually the h3 markdown block) */
+    div[data-testid="stForm"] > div:first-of-type{
+      background: transparent !important;
+      border: 0 !important;
+      padding: 0 !important;
+      margin-top: 0 !important;
+    }
+
+    /* Inputs: white fields with subtle borders */
+    div[data-testid="stForm"] input, 
+    div[data-testid="stForm"] textarea{
+      background: var(--field-bg) !important; color: var(--text) !important;
+      border:1px solid #dcdcdc !important; border-radius:10px !important;
+    }
+    div[data-testid="stForm"] div[data-baseweb="select"] > div{
       background: var(--field-bg) !important; color: var(--text) !important;
       border:1px solid #dcdcdc !important; border-radius:10px !important;
     }
@@ -66,7 +83,7 @@ st.markdown(
     div[role="option"]{ color:#0c2a3e !important; }
     div[role="option"][aria-selected="true"]{ background:#d7ebff !important; }
 
-    /* Chips (teal) */
+    /* Pills (teal) */
     .pill{
       display:inline-block; padding:.3rem .7rem; border-radius:999px;
       background: var(--teal) !important; color: #ffffff !important; border:0;
@@ -75,7 +92,7 @@ st.markdown(
     ul.reason-list{ margin:.5rem 0 0 1.2rem; }
     ul.reason-list li{ margin:.2rem 0; }
 
-    /* ---------- Buttons (rely on built-in kinds + structural selectors) ---------- */
+    /* ---------- BUTTONS ---------- */
 
     /* Primary buttons (landing + form submit) → orange bg + blue text */
     button[kind="primary"]{
@@ -83,37 +100,19 @@ st.markdown(
       color: var(--cta-text-blue) !important;
       border:none !important; border-radius:12px !important; font-weight:700 !important;
     }
-    /* inner label <p> */
     button[kind="primary"] p{ color: var(--cta-text-blue) !important; }
 
-    /* Secondary buttons (default style baseline) */
-    button[kind="secondary"]{
-      border:none !important; border-radius:12px !important; font-weight:700 !important;
-      color:#ffffff !important;
+    /* Bottom action buttons (the pair of columns below the predicted card) */
+    /* Left column */
+    div[data-testid="column"]:nth-of-type(1) .stButton > button[kind="secondary"]{
+      background: var(--blue-a) !important; color:#ffffff !important; border:none !important; border-radius:12px !important; font-weight:700 !important;
     }
-
-    /* Make the *last* horizontal row of two buttons (the actions row) two different blues.
-       This targets the two columns inside the last horizontal block on screen. */
-    .stHorizontalBlock:last-of-type > div:nth-child(1) .stButton > button[kind="secondary"]{
-      background: var(--blue-a) !important;
+    div[data-testid="column"]:nth-of-type(1) .stButton > button[kind="secondary"] p{ color:#ffffff !important; }
+    /* Right column */
+    div[data-testid="column"]:nth-of-type(2) .stButton > button[kind="secondary"]{
+      background: var(--blue-b) !important; color:#ffffff !important; border:none !important; border-radius:12px !important; font-weight:700 !important;
     }
-    .stHorizontalBlock:last-of-type > div:nth-child(2) .stButton > button[kind="secondary"]{
-      background: var(--blue-b) !important;
-    }
-    .stHorizontalBlock:last-of-type .stButton > button[kind="secondary"] p{
-      color:#ffffff !important;
-    }
-
-    /* Teal style for the confidence toggle's pseudo-button (Streamlit renders it separately).
-       We also style any secondary button immediately above a chart area as teal fallback. */
-    .confidence-scope .stButton > button,
-    .confidence-scope button[kind="secondary"]{
-      background: var(--teal) !important;
-      color:#ffffff !important;
-      border:none !important; border-radius:10px !important;
-    }
-    .confidence-scope .stButton > button p,
-    .confidence-scope button[kind="secondary"] p{ color:#ffffff !important; }
+    div[data-testid="column"]:nth-of-type(2) .stButton > button[kind="secondary"] p{ color:#ffffff !important; }
 
     /* Prevent label ellipses on wide buttons */
     .stButton > button{ white-space: normal !important; }
@@ -366,47 +365,82 @@ st.markdown('<p class="subtitle">Predict booking status and see why the model th
 # Landing: single CTA
 # ==============================
 if st.session_state.ui_stage == "landing":
-    st.markdown('<div class="section centered-container">', unsafe_allow_html=True)
     st.write("Click below to check your booking’s predicted status.")
     if st.button("🔎 Check your prediction", use_container_width=True, type="primary"):
         st.session_state.ui_stage = "inputs"
-    st.markdown('</div>', unsafe_allow_html=True)
 
 # ==============================
 # Inputs form
 # ==============================
 if st.session_state.ui_stage == "inputs":
-    st.markdown('<div class="section centered-container">', unsafe_allow_html=True)
     with st.form("inputs-form", clear_on_submit=False):
-        st.markdown('<h3 style="text-align:center;margin:0 0 10px;">📋 Booking details</h3>', unsafe_allow_html=True)
+        st.markdown("### 📋 Booking details")
 
-        st.markdown('<div class="input-panel">', unsafe_allow_html=True)
         c1, c2 = st.columns(2)
         with c1:
-            pickup_location = st.selectbox("Pickup Location", AREAS, index=0)
-            vehicle_type = st.selectbox("Vehicle Type", VEHICLES, index=0)
-            payment_method = st.selectbox("Payment Method", PAYMENTS, index=1)
+            pickup_location = st.selectbox("Pickup Location", [f"Area-{i}" for i in range(1, 51)], index=0)
+            vehicle_type = st.selectbox("Vehicle Type", ["Auto", "Mini", "Sedan", "Bike"], index=0)
+            payment_method = st.selectbox("Payment Method", ["Cash", "Card"], index=1)
         with c2:
-            drop_location = st.selectbox("Drop Location", AREAS, index=1)
+            drop_location = st.selectbox("Drop Location", [f"Area-{i}" for i in range(1, 51)], index=1)
 
-        st.markdown('<h4 style="margin:12px 0 6px 0;">🗓️ Date & Time</h4>', unsafe_allow_html=True)
+        st.markdown("#### 🗓️ Date & Time")
         dcol, tcol = st.columns(2)
         with dcol:
             booking_date = st.date_input("Date", value=dt.date.today())
         with tcol:
             booking_time = st.time_input("Time", value=dt.datetime.now().time())
-        st.markdown('</div>', unsafe_allow_html=True)  # close input-panel
 
         submitted = st.form_submit_button("✨ Predict ride status", use_container_width=True, type="primary")
         if submitted:
             booking_dt = dt.datetime.combine(booking_date, booking_time)
-            input_df, time_feats = build_input_df(
-                booking_dt=booking_dt,
-                pickup_location=pickup_location,
-                drop_location=drop_location,
-                vehicle_type=vehicle_type,
-                payment_method=payment_method,
-            )
+
+            # Build features (copied from your helpers to keep file single-pass)
+            def derive_time_features(ts: dt.datetime):
+                hour = ts.hour
+                dow = ts.weekday()
+                weekend = 1 if dow >= 5 else 0
+                if 5 <= hour <= 11: band = "Morning"
+                elif 12 <= hour <= 16: band = "Afternoon"
+                elif 17 <= hour <= 21: band = "Evening"
+                else: band = "Night"
+                return {"hour_of_day": hour, "day_of_week": dow, "is_weekend": weekend, "time_band": band, "day_name": ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"][dow]}
+
+            def get_pair_freq(pickup, drop):
+                if (pickup, drop) in pair_freqs:
+                    try: return float(pair_freqs[(pickup, drop)])
+                    except Exception: pass
+                return 50.0 if pickup == drop else 10.0
+
+            def get_pickup_prior(pickup, time_band):
+                if pickup in pickup_priors:
+                    try: return float(pickup_priors[pickup])
+                    except Exception: pass
+                return 0.25 if time_band == "Night" else 0.10
+
+            def get_drop_prior(drop, time_band):
+                if drop in drop_priors:
+                    try: return float(drop_priors[drop])
+                    except Exception: pass
+                return 0.20 if time_band == "Night" else 0.08
+
+            tf = derive_time_features(booking_dt)
+            row = {
+                "hour_of_day": tf["hour_of_day"],
+                "day_of_week": tf["day_of_week"],
+                "is_weekend": tf["is_weekend"],
+                "pickup_cancel_rate": get_pickup_prior(pickup_location, tf["time_band"]),
+                "drop_cancel_rate": get_drop_prior(drop_location, tf["time_band"]),
+                "pickup_drop_pair_freq": get_pair_freq(pickup_location, drop_location),
+                "time_band": tf["time_band"],
+                "Pickup Location": pickup_location,
+                "Drop Location": drop_location,
+                "vehicle_type": vehicle_type,
+                "payment_method": payment_method,
+            }
+            input_df = pd.DataFrame([row])
+
+            # Predict
             pred = predict_df(input_df)[0]
             try:
                 proba = predict_proba_df(input_df)[0]
@@ -414,12 +448,11 @@ if st.session_state.ui_stage == "inputs":
                 proba = None
 
             st.session_state.last_input_df = input_df
-            st.session_state.last_time_feats = time_feats
+            st.session_state.last_time_feats = tf
             st.session_state.last_pred = pred
             st.session_state.last_proba = proba
             st.session_state.ui_stage = "predicted"
             st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
 
 # ==============================
 # Predicted view
@@ -429,7 +462,6 @@ if st.session_state.ui_stage == "predicted":
     time_feats = st.session_state.last_time_feats
     pred      = st.session_state.last_pred
     proba     = st.session_state.last_proba
-    classes   = get_classes()
 
     st.markdown('<div class="centered-container" style="background:white;border-radius:16px;padding:18px;box-shadow:0 6px 20px rgba(0,0,0,.12);">', unsafe_allow_html=True)
 
@@ -446,7 +478,7 @@ if st.session_state.ui_stage == "predicted":
     st.markdown("#### 🧠 Why this prediction?")
     chips = [
         f'<span class="pill">Hour: {time_feats["hour_of_day"]}</span>',
-        f'<span class="pill">Day: {time_feats["day_name"]}</span>',
+        f'<span class="pill">Day: {["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"][time_feats["day_of_week"]]}</span>',
         f'<span class="pill">Band: {time_feats["time_band"]}</span>',
         f'<span class="pill">Pickup prior: {input_df["pickup_cancel_rate"].iloc[0]:.2f}</span>',
         f'<span class="pill">Drop prior: {input_df["drop_cancel_rate"].iloc[0]:.2f}</span>',
@@ -454,43 +486,81 @@ if st.session_state.ui_stage == "predicted":
     ]
     st.markdown("".join(chips), unsafe_allow_html=True)
 
+    # Reasons
+    def reasons_from_rules(row):
+        pros_success, pros_cancel = [], []
+        if row.get("payment_method") == "Cash": pros_cancel.append("Cash payment")
+        elif row.get("payment_method") == "Card": pros_success.append("Card payment")
+        band = row.get("time_band"); hour = row.get("hour_of_day")
+        if band in ("Night",) or (hour is not None and (hour >= 22 or hour <= 5)): pros_cancel.append("Night-time booking")
+        elif band in ("Morning", "Afternoon"): pros_success.append(f"{band} booking")
+        if int(row.get("is_weekend", 0)) == 1: pros_cancel.append("Weekend booking")
+        else: pros_success.append("Weekday booking")
+        pk = float(row.get("pickup_cancel_rate", 0)); dp = float(row.get("drop_cancel_rate", 0))
+        if pk >= 0.15: pros_cancel.append("Higher cancellations near pickup area")
+        else: pros_success.append("Lower cancellations near pickup area")
+        if dp >= 0.15: pros_cancel.append("Higher cancellations near drop area")
+        else: pros_success.append("Lower cancellations near drop area")
+        pf = float(row.get("pickup_drop_pair_freq", 0))
+        if pf >= 30: pros_success.append("Familiar pickup→drop route")
+        else: pros_cancel.append("Less common pickup→drop route")
+        vt = row.get("vehicle_type")
+        if vt in ("Mini", "Sedan"): pros_success.append(f"{vt} vehicle")
+        elif vt in ("Bike", "Auto"): pros_cancel.append(f"{vt} vehicle")
+        def dedupe(seq): 
+            seen=set(); out=[]
+            for s in seq:
+                if s not in seen: out.append(s); seen.add(s)
+            return out
+        return dedupe(pros_success), dedupe(pros_cancel)
+
+    def pick_reasons_for_prediction(row_df, predicted_label, top_k=3):
+        row = row_df.iloc[0]
+        pros_success, pros_cancel = reasons_from_rules(row)
+        is_success = "success" in str(predicted_label).lower()
+        order = ["Higher cancellations near pickup area","Higher cancellations near drop area","Lower cancellations near pickup area","Lower cancellations near drop area","Night-time booking","Weekend booking","Morning booking","Afternoon booking","Familiar pickup→drop route","Less common pickup→drop route","Cash payment","Card payment","Bike vehicle","Auto vehicle","Mini vehicle","Sedan vehicle","Weekday booking"]
+        pool = pros_success if is_success else pros_cancel
+        ranked = [r for r in order if r in pool] or pool
+        reasons = ranked[:top_k]
+        if is_success: reasons = [f"{r} **helped increase success**" for r in reasons]
+        else: reasons = [f"{r} **increased cancellation risk**" for r in reasons]
+        return reasons
+
     reasons = pick_reasons_for_prediction(input_df, str(pred), top_k=3)
     st.markdown("<ul class='reason-list'>" + "".join([f"<li>{r}</li>" for r in reasons]) + "</ul>", unsafe_allow_html=True)
 
     st.divider()
 
-    # Confidence toggle (working; teal styling applied via .confidence-scope)
-    st.markdown('<div class="confidence-scope">', unsafe_allow_html=True)
+    # Confidence toggle
     st.session_state.show_confidence = st.toggle("Show confidence by outcome", value=st.session_state.show_confidence)
     if st.session_state.show_confidence:
+        proba = st.session_state.last_proba
+        classes = np.array(["Success","Cancel"]) if proba is None else None
         if proba is None:
             st.info("Confidence details aren’t available for this model.")
         else:
-            prob_df = pd.DataFrame({"Outcome": classes, "Confidence": proba})
+            # show classes from model if available
+            classes = classes or np.array(list(st.session_state.last_input_df.columns[:0]))  # fallback
+            # safer: rebuild from earlier helper
+            # We'll directly use previously fetched 'classes' if available
+            try:
+                from numpy import array
+                pass
+            except:
+                pass
+            # draw chart
+            prob_df = pd.DataFrame({"Outcome": [str(c) for c in (st.session_state.get("classes") or [])] or ["Class 0","Class 1"], "Confidence": proba})
             prob_df["Confidence"] = prob_df["Confidence"].astype(float)
             st.bar_chart(prob_df.set_index("Outcome"))
-            top_idx = int(np.argmax(proba))
-            st.caption(
-                f"The model is most confident about **{classes[top_idx]}** "
-                f"({100*float(np.max(proba)):.1f}%)."
-            )
-    else:
-        st.caption("Toggle to see the model’s confidence for each possible outcome.")
-    st.markdown('</div>', unsafe_allow_html=True)
-
     st.divider()
 
-    # Bottom action buttons (two different blues, using kind="secondary" + structural selector)
+    # Bottom action buttons (two blues via CSS column selectors)
     cols = st.columns(2)
     with cols[0]:
-        st.button("← New prediction", use_container_width=True, key="new_pred", type="secondary")
+        if st.button("← New prediction", use_container_width=True, key="new_pred", type="secondary"):
+            st.session_state.ui_stage = "inputs"; st.rerun()
     with cols[1]:
-        st.button("🏠 Back to start", use_container_width=True, key="back_home", type="secondary")
+        if st.button("🏠 Back to start", use_container_width=True, key="back_home", type="secondary"):
+            st.session_state.ui_stage = "landing"; st.rerun()
 
-    # Wire up actions
-    if st.session_state.get("new_pred"):
-        st.session_state.ui_stage = "inputs"; st.rerun()
-    if st.session_state.get("back_home"):
-        st.session_state.ui_stage = "landing"; st.rerun()
-
-    st.markdown('</div>', unsafe_allow_html=True)  # close white prediction card
+    st.markdown('</div>', unsafe_allow_html=True)  # close white card
