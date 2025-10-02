@@ -20,124 +20,104 @@ LIGHT_BLUE  = "#549ABE"  # input block background
 WHITE       = "#FFFFFF"
 
 st.markdown(
-    f"""
+    """
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@500;700&display=swap');
 
-    :root {{
-      --cream: #f7f5ef;        /* offwhite */
-      --orange: #e45528;       /* CTA orange */
-      --dark-navy: #081A2D;    /* strong navy */
-      --teal: #3ca6a6;         /* teal accent */
-      --aqua: #549ABE;         /* light aqua blue */
+    :root{
+      --cream: #f7f5ef;           /* off-white panel + app bg */
+      --orange: #e45528;          /* CTA */
+      --dark-navy: #081A2D;       /* strong navy */
+      --teal: #3ca6a6;            /* teal accent */
+      --aqua: #549ABE;            /* light aqua */
       --white: #ffffff;
-    }}
+      --text: #0d1b2a;
+    }
 
-    /* App background */
-    .stApp {{
-      background: var(--cream);
-      background-attachment: fixed;
-    }}
-
-    /* General text */
-    .stApp, .stApp p, .stApp label, .stApp li, .stApp span {{
-      color: #0d1b2a;
-      font-weight: 500;
-    }}
+    /* App background + base text */
+    .stApp{ background: var(--cream) !important; }
+    .stApp, .stApp p, .stApp label, .stApp span, .stApp li{ color: var(--text) !important; }
 
     /* Title */
-    .big-title {{
+    .big-title{
       font-family: 'Poppins', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-      font-size: 2.2rem;
-      font-weight: 700;
-      text-align: center;
-      color: var(--teal);
-      margin: .25rem 0 .5rem 0;
-    }}
+      font-size: 2.2rem; font-weight: 700; text-align: center;
+      color: var(--teal); margin:.25rem 0 .6rem 0;
+    }
+    .subtitle{ color:#243b53; text-align:center; margin-bottom:1rem; }
 
-    .subtitle {{
-      color: #243b53;
-      text-align: center;
-      margin-bottom: 1.25rem;
-    }}
+    /* Section card (dark navy shell behind the off-white input panel) */
+    .section{
+      border-radius:16px; padding:18px; background: var(--dark-navy) !important;
+      box-shadow:0 6px 20px rgba(0,0,0,.15);
+    }
+    .centered-container{ max-width: 820px; margin: 0 auto; }
 
-    /* Section shell */
-    .section {{
-      border: 0;
-      border-radius: 16px;
-      padding: 18px;
-      background: var(--dark-navy);
-      box-shadow: 0 6px 20px rgba(0,0,0,.15);
-    }}
+    /* Input panel: OFF-WHITE */
+    .input-panel{
+      background: var(--cream) !important;
+      border-radius:14px; padding:14px; margin-top:8px;
+      border: 1px solid #e4e1d7;
+    }
 
-    /* Input panel with offwhite background */
-    .input-panel {{
-      border-radius: 14px;
-      padding: 14px;
-      background: var(--cream); 
-      margin-top: 6px;
-    }}
+    /* Make labels readable on dark shell */
+    .section :is(label, h3, h4, .stMarkdown p){ color: var(--white) !important; }
+    /* But inside off-white input panel, revert to dark text */
+    .input-panel :is(label, p, h4, h5, .stMarkdown){ color: var(--text) !important; }
 
-    /* Input fields white inside */
-    .input-panel .stSelectbox div[data-baseweb="select"] > div,
-    .input-panel .stTextInput input,
-    .input-panel .stDateInput input,
-    .input-panel .stTimeInput input {{
-      background: var(--white) !important;
-      color: #0d1b2a !important;
-      border-radius: 10px !important;
-      border: 1px solid #dcdcdc !important;
-    }}
+    /* Inputs WHITE */
+    .input-panel :is(input, textarea){ background: var(--white) !important; color: var(--text) !important; }
+    .input-panel div[data-baseweb="select"] > div{ background: var(--white) !important; color: var(--text) !important; }
+    .input-panel :is(input, textarea){ border:1px solid #dcdcdc !important; border-radius:10px !important; }
+    .input-panel div[data-baseweb="select"] > div{ border:1px solid #dcdcdc !important; border-radius:10px !important; }
 
-    /* Pills for reasons */
-    .pill {{
-      display:inline-block; padding:.25rem .6rem; border-radius:999px;
-      background:#f5f8fb; margin:.25rem .35rem .35rem 0; font-size:.85rem; color:#243b53;
-      border: 1px solid #e6eef7;
-    }}
+    /* Reason chips: TEAL */
+    .pill{
+      display:inline-block; padding:.28rem .65rem; border-radius:999px;
+      background: var(--teal) !important; color: var(--white) !important;
+      border: 0; margin:.25rem .35rem .35rem 0; font-size:.85rem;
+    }
+    ul.reason-list{ margin:.5rem 0 0 1.2rem; }
+    ul.reason-list li{ margin:.2rem 0; color: var(--text) !important; }
 
-    /* Buttons */
-    /* Landing CTA */
-    #landing .stButton > button {{
-      background: var(--orange);
-      color: var(--white);
-      border-radius: 12px;
-      border: none;
-    }}
+    /* ---------------- BUTTONS ----------------
+       Newer Streamlit builds use data-testid on the button container.
+       We target both the container and the <button> for reliability.
+    */
+    /* Predict (any button inside a form) -> ORANGE */
+    div[data-testid="stForm"] .stButton > button,
+    div[data-testid="stForm"] button[kind],
+    div[data-testid="stForm"] button{
+      background: var(--orange) !important;
+      color: var(--white) !important;
+      border: none !important; border-radius:12px !important;
+    }
 
-    /* Predict button */
-    #inputs-section .stForm .stButton > button {{
-      background: var(--orange);
-      color: var(--white);
-      border-radius: 12px;
-      border: none;
-    }}
+    /* Confidence toggle -> TEAL */
+    .confidence-scope .stButton > button,
+    .confidence-scope button{
+      background: var(--teal) !important; color: var(--white) !important;
+      border:none !important; border-radius:10px !important;
+    }
 
-    /* Show confidence button */
-    #confidence-block .stButton > button {{
-      background: var(--teal);
-      color: var(--white);
-      border-radius: 10px;
-      border: none;
-    }}
+    /* Landing CTA -> ORANGE */
+    .landing-scope .stButton > button,
+    .landing-scope button{
+      background: var(--orange) !important; color: var(--white) !important;
+      border:none !important; border-radius:12px !important;
+    }
 
-    /* New Prediction & Back buttons */
-    #predicted-actions .stButton:nth-of-type(1) > button {{
-      background: var(--aqua);
-      color: var(--white);
-      border-radius: 12px;
-      border: none;
-    }}
-    #predicted-actions .stButton:nth-of-type(2) > button {{
-      background: var(--dark-navy);
-      color: var(--white);
-      border-radius: 12px;
-      border: none;
-    }}
+    /* Action buttons at bottom (left AQUA, right NAVY) */
+    .actions-scope .stButton > button{ border:none !important; border-radius:12px !important; color: var(--white) !important; }
+    .actions-scope .stButton:nth-of-type(1) > button{ background: var(--aqua) !important; }
+    .actions-scope .stButton:nth-of-type(2) > button{ background: var(--dark-navy) !important; }
+
+    /* Keep Streamlit success/warn/error */
     </style>
     """,
     unsafe_allow_html=True
 )
+
 
 # ==============================
 # Model loader (Pipeline OR dict bundle)
@@ -391,11 +371,14 @@ if st.session_state.ui_stage == "landing":
 # Inputs form
 # ==============================
 if st.session_state.ui_stage == "inputs":
-    st.markdown('<div id="inputs-section" class="section centered-container">', unsafe_allow_html=True)
-    with st.form("inputs-form", clear_on_submit=False):
-        st.markdown('<h3 style="color: var(--white); text-align:center; margin:0 0 10px;">📋 Booking details</h3>', unsafe_allow_html=True)
+    # Dark navy shell
+    st.markdown('<div class="section centered-container">', unsafe_allow_html=True)
 
-        # Light-blue panel that wraps inputs
+    with st.form("inputs-form", clear_on_submit=False):
+        # White-on-navy heading
+        st.markdown('<h3 style="text-align:center;margin:0 0 10px;">📋 Booking details</h3>', unsafe_allow_html=True)
+
+        # OFF-WHITE input panel inside the shell
         st.markdown('<div class="input-panel">', unsafe_allow_html=True)
         c1, c2 = st.columns(2)
         with c1:
@@ -405,7 +388,7 @@ if st.session_state.ui_stage == "inputs":
         with c2:
             drop_location = st.selectbox("Drop Location", AREAS, index=1)
 
-        st.markdown('<div style="height:8px;"></div>', unsafe_allow_html=True)
+        st.markdown('<h4 style="margin:12px 0 6px 0;">🗓️ Date & Time</h4>', unsafe_allow_html=True)
         dcol, tcol = st.columns(2)
         with dcol:
             booking_date = st.date_input("Date", value=dt.date.today())
@@ -413,6 +396,7 @@ if st.session_state.ui_stage == "inputs":
             booking_time = st.time_input("Time", value=dt.datetime.now().time())
         st.markdown('</div>', unsafe_allow_html=True)  # close input-panel
 
+        # PREDICT button (now orange due to form-scoped rule)
         submitted = st.form_submit_button("✨ Predict ride status", use_container_width=True)
         if submitted:
             booking_dt = dt.datetime.combine(booking_date, booking_time)
@@ -436,6 +420,7 @@ if st.session_state.ui_stage == "inputs":
             st.session_state.ui_stage = "predicted"
             st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
+
 
 # ==============================
 # Predicted view
@@ -477,32 +462,19 @@ if st.session_state.ui_stage == "predicted":
 
         st.divider()
 
-        # --- Confidence chart toggle (brown button)
-        st.markdown('<div id="confidence-block">', unsafe_allow_html=True)
-        if st.button("Show confidence by outcome"):
-            if proba is None:
-                st.info("Confidence details aren’t available for this model.")
-            else:
-                prob_df = pd.DataFrame({"Outcome": classes, "Confidence": proba})
-                st.bar_chart(prob_df.set_index("Outcome"))
-                top_idx = int(np.argmax(proba))
-                st.caption(f"The model is most confident about **{classes[top_idx]}** "
-                           f"({100*float(np.max(proba)):.1f}%).")
-        else:
-            st.caption("Click to see the model’s confidence for each possible outcome.")
-        st.markdown('</div>', unsafe_allow_html=True)
+       # --- Confidence chart toggle ---
+st.markdown('<div class="confidence-scope">', unsafe_allow_html=True)
+if st.button("Show confidence by outcome"):
+    ...
+else:
+    st.caption("Click to see the model’s confidence for each possible outcome.")
+st.markdown('</div>', unsafe_allow_html=True)
 
-        st.divider()
-
-        # Bottom action buttons with two different blues
-        st.markdown('<div id="predicted-actions">', unsafe_allow_html=True)
-        cols = st.columns(2)
-        if cols[0].button("← New prediction", use_container_width=True):
-            st.session_state.ui_stage = "inputs"
-            st.rerun()
-        if cols[1].button("🏠 Back to start", use_container_width=True):
-            st.session_state.ui_stage = "landing"
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        st.markdown('</div>', unsafe_allow_html=True)  # close white card
+# --- Bottom actions ---
+st.markdown('<div class="actions-scope">', unsafe_allow_html=True)
+cols = st.columns(2)
+if cols[0].button("← New prediction", use_container_width=True):
+    st.session_state.ui_stage = "inputs"; st.rerun()
+if cols[1].button("🏠 Back to start", use_container_width=True):
+    st.session_state.ui_stage = "landing"; st.rerun()
+st.markdown('</div>', unsafe_allow_html=True)
