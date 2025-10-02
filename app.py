@@ -356,6 +356,21 @@ if st.session_state.ui_stage == "predicted":
     else:
         st.warning(f"⚠️ Predicted Booking Status: **{pred}**")
 
+
+st.markdown("""
+<style>
+.pill {
+    display: inline-block;
+    background-color: #1f77b4; /* Blue */
+    color: white;
+    padding: 6px 10px;
+    margin: 4px;
+    border-radius: 8px;
+    font-size: 14px;
+}
+</style>
+""", unsafe_allow_html=True)
+
     # --- Why this prediction? (chips + friendly bullet list)
     with st.container():
         st.markdown("#### 🧠 Why this prediction?")
