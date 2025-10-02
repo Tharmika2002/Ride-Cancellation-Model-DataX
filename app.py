@@ -282,7 +282,6 @@ if "last_proba" not in st.session_state:
 # Header
 # ==============================
 st.markdown('<div class="big-title">🚖 Ride Cancellation Prediction</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle">Random Forest • Simple. Clear. Explainable.</div>', unsafe_allow_html=True)
 
 # ==============================
 # Landing: single CTA
@@ -375,18 +374,20 @@ if st.session_state.ui_stage == "predicted":
 
     st.divider()
 
-    # === Only visualization we keep: Class probabilities (on demand) ===
-    st.markdown("### 📊 Class probability")
-    if st.button("Show class probabilities"):
-        if proba is None:
-            st.info("Model does not expose probabilities.")
-        else:
-            prob_df = pd.DataFrame({"Class": classes, "Probability": proba})
-            st.bar_chart(prob_df.set_index("Class"))
-            top_idx = int(np.argmax(proba))
-            st.caption(f"Top class: **{classes[top_idx]}** with {100*float(np.max(proba)):.1f}% confidence.")
+   # === Only visualization we keep: Confidence (on demand) ===
+st.markdown("### 🤝 How confident is this prediction?")
+if st.button("Show confidence by outcome"):
+    if proba is None:
+        st.info("Confidence details aren’t available for this model.")
     else:
-        st.caption("Click the button to see the model’s class probabilities.")
+        prob_df = pd.DataFrame({"Outcome": classes, "Confidence": proba})
+        st.bar_chart(prob_df.set_index("Outcome"))
+        top_idx = int(np.argmax(proba))
+        st.caption(f"The model is most confident about **{classes[top_idx]}** "
+                   f"({100*float(np.max(proba)):.1f}%).")
+else:
+    st.caption("Click to see the model’s confidence for each possible outcome.")
+
 
     st.divider()
     cols = st.columns(2)
