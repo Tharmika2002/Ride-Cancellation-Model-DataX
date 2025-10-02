@@ -10,16 +10,7 @@ from pathlib import Path
 # ==============================
 st.set_page_config(page_title="Ride Cancellation Predictor — Random Forest", layout="centered")
 
-# (Palette refs kept for convenience)
-WARM_YELLOW = "#FEBA53"
-BROWN       = "#8A5438"
-DARK_NAVY   = "#081A2D"
-DEEP_BLUE   = "#05355D"
-BOLD_BLUE   = "#15608B"
-LIGHT_BLUE  = "#549ABE"
-WHITE       = "#FFFFFF"
-
-# ---------------- CSS (v4) ----------------
+# ---------------- CSS (v5) ----------------
 st.markdown(
     """
     <style>
@@ -84,7 +75,7 @@ st.markdown(
     ul.reason-list{ margin:.5rem 0 0 1.2rem; }
     ul.reason-list li{ margin:.2rem 0; }
 
-    /* ---------- Buttons ---------- */
+    /* ---------- Buttons (high-specificity + label color) ---------- */
 
     /* Landing & Predict (orange bg + blue text) */
     .landing-scope .stButton > button,
@@ -94,6 +85,11 @@ st.markdown(
       color: var(--cta-text-blue) !important;
       border:none !important; border-radius:12px !important; font-weight:700 !important;
     }
+    .landing-scope .stButton > button p,
+    div[data-testid="stForm"] .stButton > button p,
+    div[data-testid="stForm"] button p{
+      color: var(--cta-text-blue) !important;
+    }
 
     /* Show confidence (teal) */
     .confidence-scope .stButton > button,
@@ -101,11 +97,16 @@ st.markdown(
       background: var(--teal) !important; color: #ffffff !important;
       border:none !important; border-radius:10px !important; font-weight:700 !important;
     }
+    .confidence-scope .stButton > button p,
+    .confidence-scope button p{ color:#ffffff !important; }
 
     /* Bottom actions: different blues */
-    .actions-scope .stButton > button{ border:none !important; border-radius:12px !important; color:#ffffff !important; font-weight:700 !important; }
+    .actions-scope .stButton > button{
+      border:none !important; border-radius:12px !important; color:#ffffff !important; font-weight:700 !important;
+    }
     .actions-scope .stButton:nth-of-type(1) > button{ background: var(--blue-a) !important; }  /* New prediction */
     .actions-scope .stButton:nth-of-type(2) > button{ background: var(--blue-b) !important; }  /* Back to start */
+    .actions-scope .stButton > button p{ color:#ffffff !important; }
 
     /* Prevent label ellipses on wide buttons */
     .stButton > button{ white-space: normal !important; }
