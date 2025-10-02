@@ -357,6 +357,9 @@ if st.session_state.ui_stage == "predicted":
         st.warning(f"⚠️ Predicted Booking Status: **{pred}**")
 
 
+
+
+# === Custom CSS (define pill style once) ===
 st.markdown("""
 <style>
 .pill {
@@ -371,18 +374,20 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-    # --- Why this prediction? (chips + friendly bullet list)
-    with st.container():
-        st.markdown("#### 🧠 Why this prediction?")
-        chips = [
-            f'<span class="pill">Hour: {time_feats["hour_of_day"]}</span>',
-            f'<span class="pill">Day: {time_feats["day_name"]}</span>',
-            f'<span class="pill">Band: {time_feats["time_band"]}</span>',
-            f'<span class="pill">Pickup prior: {input_df["pickup_cancel_rate"].iloc[0]:.2f}</span>',
-            f'<span class="pill">Drop prior: {input_df["drop_cancel_rate"].iloc[0]:.2f}</span>',
-            f'<span class="pill">Route freq: {int(input_df["pickup_drop_pair_freq"].iloc[0])}</span>',
-        ]
-        st.markdown(" ".join(chips), unsafe_allow_html=True)
+
+# --- Why this prediction? (chips + friendly bullet list)
+with st.container():
+    st.markdown("#### 🧠 Why this prediction?")
+    chips = [
+        f'<span class="pill">Hour: {time_feats["hour_of_day"]}</span>',
+        f'<span class="pill">Day: {time_feats["day_name"]}</span>',
+        f'<span class="pill">Band: {time_feats["time_band"]}</span>',
+        f'<span class="pill">Pickup prior: {input_df["pickup_cancel_rate"].iloc[0]:.2f}</span>',
+        f'<span class="pill">Drop prior: {input_df["drop_cancel_rate"].iloc[0]:.2f}</span>',
+        f'<span class="pill">Route freq: {int(input_df["pickup_drop_pair_freq"].iloc[0])}</span>',
+    ]
+    st.markdown("".join(chips), unsafe_allow_html=True)
+
 
         reasons = pick_reasons_for_prediction(input_df, str(pred), top_k=3)
         st.markdown("<ul class='reason-list'>" + "".join([f"<li>{r}</li>" for r in reasons]) + "</ul>", unsafe_allow_html=True)
